@@ -1,4 +1,4 @@
-from .datastructures import IndexedList
+from .indexedlist import IndexedList
 from rustbpe import bpe
 
 import multiprocessing as mp

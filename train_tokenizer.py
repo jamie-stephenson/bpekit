@@ -1,5 +1,5 @@
 """Trains and saves new tokenizer"""
-from tokenizer import Tokenizer, get_dataset
+from utils import Tokenizer, get_dataset
 
 import argparse
 from pathlib import Path
