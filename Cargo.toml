@@ -1,0 +1,13 @@
+[package]
+name = "rustbpe"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rustbpe"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module", "abi3-py311"] }
+mpi = "0.8"

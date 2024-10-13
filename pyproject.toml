@@ -1,0 +1,11 @@
+[build-system]
+requires = ["maturin>=0.12", "setuptools", "wheel"]
+build-backend = "maturin"
+
+[project]
+name = "bpetokenizer"
+version = "0.1.0"
+dependencies = [
+    "datasets",
+    "tqdm"
+]
