@@ -8,23 +8,24 @@ import os
 def train_tokenizer(
         path: Path, 
         vocab_size: int, 
+        merges_path: Path = Path('tokenizers/'),
         tokens_path: Path | None = None, 
         shard_size: int = int(1e8)
     ) -> Tokenizer:
 
-    rank, world_size = int(os.getenv('OMPI_COMM_WORLD_RANK')), int(os.getenv('OMPI_COMM_WORLD_SIZE'))
+    rank, world_size = int(os.getenv('OMPI_COMM_WORLD_RANK',0)), int(os.getenv('OMPI_COMM_WORLD_SIZE',1))
+    print(merges_path,Path('tokenziers/'))
+    merges_path = merges_path / Path(f"{vocab_size}.pkl")
 
-    tokenizer_path = Path("tokenizers") / path.name / Path(f"{vocab_size}.pkl")
-
-    assert not os.path.exists(tokenizer_path),(
+    assert not os.path.exists(merges_path),(
         "A tokenizer already exists at {}. Have you trained this tokenizer already?"
-        .format(tokenizer_path)
+        .format(merges_path)
     )
     
     dataset = get_dataset(path,rank,world_size)
 
     tokenizer = Tokenizer.from_dataset(dataset,vocab_size,rank,world_size)
-    tokenizer.save_merges(tokenizer_path)
+    tokenizer.save_merges(merges_path)
 
     if args.tokens_path:
         tokenizer.save_encoded_tokenizer_corpus(tokens_path,shard_size)
@@ -45,7 +46,15 @@ if __name__ == '__main__':
         type=Path,
         help="Path to data set."
     )
-    
+
+    parser.add_argument(
+        "--merges_path",
+        "--merges-path",
+        type= Path,
+        default='tokenizers/',
+        help="Path to save merges to."
+    )
+
     parser.add_argument(
         "--tokens_path",
         "--tokens-path",
@@ -62,5 +71,4 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
-
-    train_tokenizer(args.path, args.vocab_size, args.tokens_path, args.shard_size)
+    train_tokenizer(**vars(args))

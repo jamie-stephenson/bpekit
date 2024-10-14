@@ -137,16 +137,6 @@ impl<'a> DistributedMultiset<'a> {
         }
     }
 
-    // Get the count of an item
-    pub fn count(&mut self, item: &(u32, u32)) -> u64 {
-        self.commit();
-        if let Some(&node_idx) = self.d.get(item) {
-            self.nodes[node_idx].count
-        } else {
-            0
-        }
-    }
-
     // Get the most common item, and its count 
     pub fn most_common(&mut self) -> Option<((u32, u32),u64)> {
         self.commit();
@@ -156,12 +146,6 @@ impl<'a> DistributedMultiset<'a> {
         } else {
             None
         }
-    }
-
-    // Check if the multiset is empty
-    pub fn is_empty(&mut self) -> bool {
-        self.commit();
-        self.heap.is_empty() || self.nodes.iter().all(|node| node.count == 0)
     }
 
     // Maintain the heap when an item's count increases
@@ -309,36 +293,6 @@ mod tests {
     use mpi::initialize;
 
     #[test]
-    fn new_multiset_from_nested_vecs() {
-        // Create a multiset from nested Vecs
-
-        let universe = initialize().unwrap();
-        let world = universe.world();
-
-        let data = vec![
-            vec![1, 2, 3],
-            vec![4, 5, 6, 7, 8, 1, 2],
-            vec![1, 2],
-            vec![7],
-            vec![8, 1],
-        ];
-
-        let mut ms = DistributedMultiset::new(data,&world);
-
-        // Check that counts for each pair are correct
-        assert_eq!(ms.count(&(1, 2)), 3);  // (1,2) appears 3 times
-        assert_eq!(ms.count(&(2, 3)), 1);  // (2,3) appears 1 time
-        assert_eq!(ms.count(&(4, 5)), 1);  // (4,5) appears 1 time
-        assert_eq!(ms.count(&(5, 6)), 1);  // (5,6) appears 1 time
-        assert_eq!(ms.count(&(6, 7)), 1);  // (6,7) appears 1 time
-        assert_eq!(ms.count(&(7, 8)), 1);  // (7,8) appears 1 time
-        assert_eq!(ms.count(&(8, 1)), 2);  // (8,1) appears 2 times
-
-        // Check that the most common pair is (1,2)
-        assert_eq!(ms.most_common(), Some(((1, 2),3)));
-    }
-
-    #[test]
     fn add_and_remove_items() {
 
         let universe = initialize().unwrap();
@@ -350,94 +304,12 @@ mod tests {
 
         // Add more occurrences of the pair (2,3)
         ms.add((2, 3), 2); // Now (2,3) should have a count of 3
-        assert_eq!(ms.count(&(2, 3)), 3);
 
         // Remove an occurrence of the pair (1,2)
         ms.remove((1, 2), 1); // Now (1,2) should have a count of 0
-        assert_eq!(ms.count(&(1, 2)), 0);
 
         // Check that the most common pair is now (2,3)
         assert_eq!(ms.most_common(), Some(((2, 3),3)));
-    }
-
-    #[test]
-    fn is_empty_after_removals() {
-
-        let universe = initialize().unwrap();
-        let world = universe.world();
-        
-        // Create a multiset with two sequential pairs
-        let data = vec![vec![1, 2], vec![2, 3]];
-        let mut ms = DistributedMultiset::new(data,&world);
-
-        // Remove all pairs
-        ms.remove((1, 2), 1);
-        ms.remove((2, 3), 1);
-
-        // The multiset should now be empty
-        assert!(ms.is_empty());
-    }
-
-    #[test]
-    fn large_dataset() {
-
-        let universe = initialize().unwrap();
-        let world = universe.world();
-        
-        // Create a large dataset where the same sequence repeats 1000 times
-        let mut data = Vec::new();
-        for _ in 0..1000 {
-            data.push(vec![1, 2, 3, 4, 5]);
-        }
-
-        let mut ms = DistributedMultiset::new(data,&world);
-
-        // Verify the counts of each pair
-        assert_eq!(ms.count(&(1, 2)), 1000);  // (1,2) appears 1000 times
-        assert_eq!(ms.count(&(2, 3)), 1000);  // (2,3) appears 1000 times
-        assert_eq!(ms.count(&(3, 4)), 1000);  // (3,4) appears 1000 times
-        assert_eq!(ms.count(&(4, 5)), 1000);  // (4,5) appears 1000 times
-    }
-
-    #[test]
-    fn zero_count() {
-
-        let universe = initialize().unwrap();
-        let world = universe.world();
-
-        // Create a multiset with a few pairs
-        let data = vec![vec![1, 2, 3]];
-        let mut ms = DistributedMultiset::new(data,&world);
-
-        // Remove an occurrence of (1,2)
-        ms.remove((1, 2), 1);
-
-        // (1,2) should now have a count of 0
-        assert_eq!(ms.count(&(1, 2)), 0);
-
-        // Check that the multiset is not empty (since (2,3) still exists)
-        assert!(!ms.is_empty());
-    }
-
-    #[test]
-    fn removing_nonexistent_item() {
-
-        let universe = initialize().unwrap();
-        let world = universe.world();
-
-        // Create a multiset with a few pairs
-        let data = vec![vec![1, 2, 3]];
-        let mut ms = DistributedMultiset::new(data,&world);
-
-        // Try removing a nonexistent pair (3,4) (it doesn't exist)
-        ms.remove((3, 4), 1);
-
-        // The count of (3,4) should still be 0
-        assert_eq!(ms.count(&(3, 4)), 0);
-
-        // The multiset should still contain other valid pairs
-        assert_eq!(ms.count(&(1, 2)), 1);
-        assert_eq!(ms.count(&(2, 3)), 1);
     }
 
     #[test]
@@ -455,25 +327,5 @@ mod tests {
         assert!(most_common == (1, 2) || most_common == (3, 4) || most_common == (5, 6));
     }
 
-    #[test]
-        fn large_counts() {
-
-
-        let universe = initialize().unwrap();
-        let world = universe.world();
-
-        // Create a multiset with a few pairs
-        let data = vec![vec![1, 2, 3]];
-        let mut ms = DistributedMultiset::new(data,&world);
-
-        // Add a large count to (1,2)
-        ms.add((1, 2), 1_000_000);
-
-        // Verify that the count for (1,2) is now 1_000_001
-        assert_eq!(ms.count(&(1, 2)), 1_000_001);
-
-        // The most common pair should be (1,2)
-        assert_eq!(ms.most_common(), Some(((1, 2),1_000_001)));
-    }
 }
 

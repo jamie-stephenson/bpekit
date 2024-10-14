@@ -1,6 +1,8 @@
 __pycache__
 /target
-/venv
+/bpevenv
 /tokenizers
 /data
 Cargo.lock
+test.ipynb
+/tokens
