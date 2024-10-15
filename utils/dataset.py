@@ -3,11 +3,16 @@ from datasets.distributed import split_dataset_by_node
 
 from pathlib import Path
 
-def get_dataset(path: Path, rank:int, world_size:int) -> Dataset:
+def get_dataset(
+        path: Path, 
+        rank: int, 
+        world_size:int,
+        ndocs: int | None = None
+ ) -> Dataset:
 
     if path.exists():
         if path.suffix=='.txt':
-            # Load the text file into a DatasetDict
+            # Load the text file into a DatasetDict (each line of the .txt will be an entry)
             dataset = load_dataset('text', data_files=str(path))
         elif path.is_dir():
             dataset = load_from_disk(path)
@@ -23,6 +28,11 @@ def get_dataset(path: Path, rank:int, world_size:int) -> Dataset:
         else:
             # Return the first available split if 'train' is not present
             dataset = next(iter(dataset.values()))
+
+    # If specified, only take the first `ndocs` entries from the dataset.
+    if ndocs:
+        dataset = dataset.select(range(ndocs))
+
     try:
         return split_dataset_by_node(dataset, rank, world_size)
     except IndexError as e:

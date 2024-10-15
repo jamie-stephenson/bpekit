@@ -73,7 +73,7 @@ impl<'a> DistributedMultiset<'a> {
     fn commit(&mut self) {
 
         // NOTE: Hashmaps aren't ordered so draining them to an iterator here causes non-deterministic behaviour.
-        // `all_reduce_counts` has extra logic to ensure that all processes return the same 
+        // `all_reduce_counts` has extra logic to ensure that all processes adjust the heap in the same way
         
         let to_add_local: Vec<((u32, u32), u64)> = self.to_add.drain().collect();
         let to_remove_local: Vec<((u32, u32), u64)> = self.to_remove.drain().collect();

@@ -10,7 +10,8 @@ def train_tokenizer(
         vocab_size: int, 
         merges_path: Path = Path('tokenizers/'),
         tokens_path: Path | None = None, 
-        shard_size: int = int(1e8)
+        shard_size: int = int(1e8),
+        ndocs: int | None = None
     ) -> Tokenizer:
 
     rank, world_size = int(os.getenv('OMPI_COMM_WORLD_RANK',0)), int(os.getenv('OMPI_COMM_WORLD_SIZE',1))
@@ -22,7 +23,7 @@ def train_tokenizer(
         .format(merges_path)
     )
     
-    dataset = get_dataset(path,rank,world_size)
+    dataset = get_dataset(path,rank,world_size,ndocs)
 
     tokenizer = Tokenizer.from_dataset(dataset,vocab_size,rank,world_size)
     tokenizer.save_merges(merges_path)
@@ -68,6 +69,13 @@ if __name__ == '__main__':
         type= int,
         default=int(1e8),
         help="Number of tokens per shard (only used when saving encoded tokenizer corpus)."
+    )
+    
+    parser.add_argument(
+        "--ndocs",
+        type= int,
+        default=None,
+        help="Number of dataset entries to encode."
     )
 
     args = parser.parse_args()
