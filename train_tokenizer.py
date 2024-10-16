@@ -15,7 +15,7 @@ def train_tokenizer(
     ) -> Tokenizer:
 
     rank, world_size = int(os.getenv('OMPI_COMM_WORLD_RANK',0)), int(os.getenv('OMPI_COMM_WORLD_SIZE',1))
-    print(merges_path,Path('tokenziers/'))
+    
     merges_path = merges_path / Path(f"{vocab_size}.pkl")
 
     assert not os.path.exists(merges_path),(
