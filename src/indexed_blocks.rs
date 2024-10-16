@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
-// Define the Node structur
+// Define the Node structure
 #[derive(Debug)]
 pub(crate) struct Node {
     pub val: u32,
