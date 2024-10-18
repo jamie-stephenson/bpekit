@@ -1,5 +1,5 @@
-use crate::indexed_blocks::IndexedBlocks;
-use crate::multiset::DistributedMultiset;
+use crate::block::IndexedBlocks;
+use crate::pairheap::DistributedMultiset;
 
 use std::time::Instant;
 
@@ -20,7 +20,7 @@ pub fn bpe(blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)>,Ve
         println!("Running BPE algorithm...");
     }
    
-    let mut indexed_blocks = IndexedBlocks::new(blocks.clone()); 
+    let mut blocks = IndexedBlocks::new(blocks.clone()); 
     let mut bp_counts = DistributedMultiset::new(blocks.clone(),&world);    
 
     if rank == 0 {
@@ -44,12 +44,12 @@ pub fn bpe(blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)>,Ve
 
         merges.push((pair_to_merge, current_vocab_size)); 
 
-        // Get the list of nodes corresponding to 'pair_to_merge'
-        if let Some(nodes) = indexed_blocks.index.get(&pair_to_merge) {
+        // Get the list of blocks corresponding to 'pair_to_merge'
+        if let Some(blocks) = pair_to_merge.block_ids
 
-            let nodes_vec: Vec<_> = nodes.iter().filter_map(|weak_node| weak_node.upgrade()).collect();
+            let blocks_vec: Vec<_> = blocks.iter().filter_map(|weak_node| weak_node.upgrade()).collect();
 
-            for node in nodes_vec {
+            for block in blocks_vec {
                 
                 // First, borrow node immutably for the initial checks
                 let proceed = {

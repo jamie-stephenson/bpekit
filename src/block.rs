@@ -1,81 +1,52 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap};
 
-// Define the Node structure
+// A string with n utf-8 characters will begin the bpe process by being represented by
+// n `Token`s, grouped together into `Block`s. Every iteration `Token`s will be "merged".
 #[derive(Debug)]
-pub(crate) struct Node {
+pub(super) struct Token {
     pub val: u32,
-    pub prev: Option<Weak<RefCell<Node>>>,
-    pub next: Option<Rc<RefCell<Node>>>,
+    pub prev: Option<usize>,
+    pub next: Option<usize>,
 }
 
-impl Node {
-    pub fn new(val: u32) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(Node { val, prev: None, next: None }))
+impl Token {
+    pub fn merge_with(&mut self, next_token: &Self, new_val: u32) {
+        self.val = new_val;
+        self.next = next_token.next;
+    }   
+}
+
+// Usually represents a word with possible preceding space but this can vary 
+// depending on the regex pattern used to split the text. 
+pub(super) struct Block {
+    pub tokens: Vec<Token>
+}
+
+impl Block {
+    pub(super) fn new() -> Self {
+        Block {
+            tokens: vec![]
+        }
     }
 
-    pub fn delete(&mut self) {
-
-        if let Some(prev) = &self.prev {
-            if let Some(prev_rc) = prev.upgrade() {
-                prev_rc.borrow_mut().next = self.next.clone();
-            }
-        }
-        if let Some(next) = &self.next {
-            if let Some(prev) = &self.prev {
-                next.borrow_mut().prev = Some(prev.clone());
+    pub(super) fn add(&mut self, val: u32) {
+        let (prev, next) = {
+            let len = self.tokens.len() as usize;
+            if let Some(prev_token) = self.tokens.last_mut() {
+                prev_token.next = Some(len);
+                (Some(len - 1), None)
             } else {
-                next.borrow_mut().prev = None;
+                (None, None)
             }
-        }
-        // Below is to avoid the triple token scenario (e.g. [108,108,108]), in which
-        // the double token bp is removed three times instead of two.
-        // Adding one ensures `proceed == false` in `bpe`.
-        self.val += 1;    
-    }
-}
-
-// Define the IndexedList structure
-pub struct IndexedList {
-    pub index: HashMap<(u32, u32), Vec<Weak<RefCell<Node>>>>,
-    pub head: Option<Rc<RefCell<Node>>>,
-}
-
-impl IndexedList {
-    pub fn new(l: Vec<u32>) -> Self {
-        let mut list = IndexedList {
-            index: HashMap::new(),
-            head: None,
         };
-
-        if l.is_empty() {
-            return list;
-        }
-
-        let mut iter = l.iter();
-        let first_val = *iter.next().unwrap();
-        let start_node = Node::new(first_val);
-        list.head = Some(start_node.clone()); // Store the head node
-
-        let mut prev_node = start_node;
-
-        for &val in iter {
-            let new_node = Node::new(val);
-            prev_node.borrow_mut().next = Some(new_node.clone());
-            new_node.borrow_mut().prev = Some(Rc::downgrade(&prev_node));
-            list.add_to_index((prev_node.borrow().val, val), &prev_node);
-            prev_node = new_node;
-        }
-
-        list
-    }
-
-    fn add_to_index(&mut self, pair: (u32, u32), node: &Rc<RefCell<Node>>) {
-        self.index
-            .entry(pair)
-            .or_insert_with(Vec::new)
-            .push(Rc::downgrade(node));
+        self.tokens.push(
+            Token { 
+                val: val, 
+                prev: prev, 
+                next: next 
+            }
+        )
     }
 }
 

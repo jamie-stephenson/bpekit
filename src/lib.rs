@@ -1,5 +1,5 @@
-mod indexed_blocks;
-mod multiset;
+mod block;
+mod pairheap;
 mod all_reduce_counts;
 mod bpe;
 
