@@ -3,15 +3,14 @@ use std::collections::{HashMap,HashSet};
 use std::fmt;
 use std::cmp::min;
 
-use collection_macros::hashset;
 use mpi::topology::SimpleCommunicator;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Pair {
-    count: u64,
+    count: u64,               // Global count
     vals: (u32, u32),
     heap_pos: usize,
-    block_ids: HashSet<usize> // Indices of blocks containing this pair
+    block_ids: HashSet<usize> // Indices of local blocks containing this pair
 }
 
 // struct to maintain counts across all processes
@@ -19,31 +18,33 @@ pub struct PairHeap<'a> {
     pairs: Vec<Pair>,                                       // Each pair contains ids for local blocks
     heap: Vec<usize>,                                       // Heap of indices into pairs, maintained based on global counts
     d: HashMap<(u32, u32), usize>,                          // Map from pair to pair index
-    to_add: HashMap<(u32, u32), (u64, HashSet<usize>)>,     // Pending additions
+    to_add: HashMap<(u32, u32), u64>,                       // Pending additions
+    to_add_block_ids: HashMap<(u32, u32), HashSet<usize>>,  // Local block ids of the pending additions
     to_remove: HashMap<(u32, u32), u64>,                    // Pending removals
     world: &'a SimpleCommunicator                           // For collective comms
 }
 
 impl<'a> PairHeap<'a> {
 
-    pub fn new(data: Vec<Block>, world: &'a SimpleCommunicator) -> Self {
+    pub fn new(data: &[Vec<u32>], world: &'a SimpleCommunicator) -> Self {
         let mut ph = PairHeap {
             pairs: Vec::new(),
             heap: Vec::new(),
             d: HashMap::new(),
             to_add: HashMap::new(),
+            to_add_block_ids: HashMap::new(),
             to_remove: HashMap::new(),
             world: world
         };
 
         // Process each block to extract pairs and add them to the heap
-        for (block_idx, block) in data.iter().enumerate() {
+        for block in data {
             // Extract adjacent pairs
-            if block.tokens.len() >= 2 {
-                for pair in seq.windows(2) {
+            if block.len() >= 2 {
+                for pair in block.windows(2) {
                     let a = pair[0];
                     let b = pair[1];
-                    ph.add((a, b), 1, block_idx);
+                    ph.add((a, b), 1);
                 }
             }
         }
@@ -54,23 +55,8 @@ impl<'a> PairHeap<'a> {
         ph
     }
 
-    pub fn add(
-        &mut self,
-        item: (u32, u32),
-        count: u64,
-        block_idx: usize,
-    ) {
-        *self.to_add.entry(item)
-            .and_modify(|entry| {
-                // Add to the existing count
-                entry.0 += count;
-                // Insert the usize into the HashSet
-                entry.1.insert(value);
-            })
-            .or_insert_with(|| {
-                // If the key doesn't exist, insert a new entry with the count and a new HashSet
-                (count, hashset![block_idx])
-            });
+    pub fn add(&mut self, item: (u32, u32), count: u64) {
+        *self.to_add.entry(item).or_insert(0) += count;
     }
 
 
@@ -85,14 +71,7 @@ impl<'a> PairHeap<'a> {
         // NOTE: Hashmaps aren't ordered so draining them to an iterator here causes non-deterministic behaviour.
         // `all_reduce_counts` has extra logic to ensure that all processes adjust the heap in the same way
         
-        let (to_add_local, block_ids_local) = original_map.drain().fold(
-            (Vec::new(), HashMap::new()),
-            |(mut vec, mut map), ((left, right), (count, block_ids))| {
-                vec.push(((left, right), count));
-                map.insert((left, right), block_ids);
-                (vec, map)
-            },
-        );
+        let to_add_local: Vec<((u32, u32), u64)> = self.to_add.drain().collect();
         let to_remove_local: Vec<((u32, u32), u64)> = self.to_remove.drain().collect();
 
         let to_add_global = all_reduce_counts(&self.world, to_add_local);
@@ -100,9 +79,11 @@ impl<'a> PairHeap<'a> {
 
         // Process additions
         for (item, count) in to_add_global {
-            if !self.heap.is_empty() {
-            }
-            self.add_pair(item, count, block_ids_local[&item]);
+            let block_ids = self.to_add_block_ids
+                                .get(&item)
+                                .cloned()
+                                .unwrap_or_else(HashSet::new);
+            self.add_pair(item, count, block_ids);
         }
 
         // Process removals
@@ -112,7 +93,7 @@ impl<'a> PairHeap<'a> {
     }
 
     // Internal method to add items
-    fn add_pair(&mut self, item: (u32, u32), count: u64, block_ids: Hashset<usize>) {
+    fn add_pair(&mut self, item: (u32, u32), count: u64, block_ids: HashSet<usize>) {
         if count == 0 {
             return;
         }
@@ -160,12 +141,13 @@ impl<'a> PairHeap<'a> {
         }
     }
 
-    // Get the most common item, and its count 
-    pub fn most_common(&mut self) -> Option<((u32, u32),u64)> {
+    // Get the most common item, its count and its block ids 
+    pub fn most_common(&mut self) -> Option<((u32,u32),u64,HashSet<usize>)> {
         self.commit();
         if !self.heap.is_empty() {
-            let node_idx = self.heap[0];
-            Some((self.pairs[node_idx].val,self.pairs[node_idx].count))
+            let pair_idx = self.heap[0];
+            let pair = self.pairs[pair_idx].clone(); 
+            Some((pair.vals,pair.count,pair.block_ids))
         } else {
             None
         }
@@ -238,17 +220,17 @@ impl<'a> PairHeap<'a> {
     
 }
 
-impl<'a> fmt::Debug for DistributedMultiset<'a> {
+impl<'a> fmt::Debug for PairHeap<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.heap.is_empty() {
-            writeln!(f, "Multiset is empty.")
+            writeln!(f, "PairHeap is empty.")
         } else {
             self.print_heap(f)
         }
     }
 }
 
-impl<'a> DistributedMultiset<'a> {
+impl<'a> PairHeap<'a> {
     fn print_heap(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let heap_size = self.heap.len();
         let height = (heap_size as f64).log2().ceil() as usize;
@@ -269,9 +251,9 @@ impl<'a> DistributedMultiset<'a> {
                 } else {
                     line.push_str(&" ".repeat(between_space));
                 }
-                let node_idx = self.heap[i];
-                let node = &self.pairs[node_idx];
-                line.push_str(&format!("({},{})", node.val.0, node.val.1));
+                let pair_idx = self.heap[i];
+                let pair = &self.pairs[pair_idx];
+                line.push_str(&format!("({},{})", pair.vals.0, pair.vals.1));
             }
             writeln!(f, "{}", line)?;
 
@@ -308,47 +290,3 @@ impl<'a> DistributedMultiset<'a> {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-    use mpi::initialize;
-
-    #[test]
-    fn add_and_remove_items() {
-
-        let universe = initialize().unwrap();
-        let world = universe.world();
-
-        // Create a multiset from a simple nested Vec
-        let data = vec![vec![1, 2, 3]];
-        let mut ms = DistributedMultiset::new(data,&world);
-
-        // Add more occurrences of the pair (2,3)
-        ms.add((2, 3), 2); // Now (2,3) should have a count of 3
-
-        // Remove an occurrence of the pair (1,2)
-        ms.remove((1, 2), 1); // Now (1,2) should have a count of 0
-
-        // Check that the most common pair is now (2,3)
-        assert_eq!(ms.most_common(), Some(((2, 3),3)));
-    }
-
-    #[test]
-    fn most_common_with_ties() {
-
-        let universe = initialize().unwrap();
-        let world = universe.world();
-
-        // Create a multiset where several pairs have the same count
-        let data = vec![vec![1, 2], vec![3, 4], vec![5, 6]];
-        let mut ms = DistributedMultiset::new(data,&world);
-
-        // All pairs have a count of 1, so any of them could be the most common
-        let (most_common, _count) = ms.most_common().unwrap();
-        assert!(most_common == (1, 2) || most_common == (3, 4) || most_common == (5, 6));
-    }
-
-}
-

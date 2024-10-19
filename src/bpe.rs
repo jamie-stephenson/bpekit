@@ -1,5 +1,4 @@
-use crate::block::IndexedBlocks;
-use crate::pairheap::DistributedMultiset;
+use crate::pairheap::PairHeap;
 
 use std::time::Instant;
 
@@ -20,8 +19,7 @@ pub fn bpe(blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)>,Ve
         println!("Running BPE algorithm...");
     }
    
-    let mut blocks = IndexedBlocks::new(blocks.clone()); 
-    let mut bp_counts = DistributedMultiset::new(blocks.clone(),&world);    
+    let mut bp_counts = PairHeap::new(&blocks,&world);    
 
     if rank == 0 {
         let init_duration = start.elapsed();
@@ -33,8 +31,8 @@ pub fn bpe(blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)>,Ve
 
     while current_vocab_size < vocab_size {
 
-        let (pair_to_merge,count) = match bp_counts.most_common() { 
-            Some(pair) => pair,
+        let ((left,right),count,block_ids) = match bp_counts.most_common() { 
+            Some(tuple) => tuple,
             None => break // Exit the loop if no pairs are left
         };
 
@@ -44,76 +42,47 @@ pub fn bpe(blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)>,Ve
 
         merges.push((pair_to_merge, current_vocab_size)); 
 
-        // Get the list of blocks corresponding to 'pair_to_merge'
-        if let Some(blocks) = pair_to_merge.block_ids
 
-            let blocks_vec: Vec<_> = blocks.iter().filter_map(|weak_node| weak_node.upgrade()).collect();
+        for block_idx in block_ids {
 
-            for block in blocks_vec {
-                
-                // First, borrow node immutably for the initial checks
-                let proceed = {
-                    let node_ref = node.borrow();
-                    
-                    // Check if node.val matches
-                    if node_ref.val != pair_to_merge.0 {
-                        false
-                    } else if let Some(next_rc) = &node_ref.next {
-                        let next_node_ref = next_rc.borrow();
-                        if next_node_ref.val != pair_to_merge.1 {
-                            false
-                        } else {
-                            true
-                        }
-                    } else {
-                        false
+            let mut block = blocks[block_idx];
+            let mut token_idx = 0;
+
+            while token_idx < block.len() {
+
+                if block[token_idx].val == left && token_idx + 1 < block.len() && block[token_idx+1].val == right {
+
+                    // Remove the pair from bp_counts
+                    bp_counts.remove((left,right), 1);
+
+                    let left_token = block[token_idx];
+                    let right_token = block[token_idx+1];
+
+                    // Handle the next token if it exists
+                    if let Some(next_idx) = right_token.next {
+                        let next_token = block[next_idx];
+                        bp_counts.remove((right, next_token.val), 1);                                             
+                        bp_counts.add((current_vocab_size, next_token.val), 1);
                     }
-                };
 
-                if !proceed {
-                    continue;
-                }
-
-                // Remove the pair from bp_counts
-                bp_counts.remove(pair_to_merge, 1);
-
-                // Handle the next-next node if it exists
-                if let Some(next_rc) = node.borrow().next.clone() {
-                    let next_node_ref = next_rc.borrow();
-                    if let Some(next_next_rc) = &next_node_ref.next {
-                        let next_next_node_ref = next_next_rc.borrow();
-                        let next_val = next_node_ref.val;
-                        let next_next_val = next_next_node_ref.val;
-                        bp_counts.remove((next_val, next_next_val), 1);                                             
-                        bp_counts.add((current_vocab_size, next_next_val), 1);                                     
+                    // Handle the previous node if it exists
+                    if let Some(prev_idx) = left_token.prev {
+                        let prev_token = block[prev_idx];
+                        bp_counts.remove((prev_token.val, left), 1);                                    
+                        bp_counts.add((prev_token.val, current_vocab_size), 1);
                     }
-                }
 
-                // Handle the previous node if it exists
-                if let Some(prev_weak) = node.borrow().prev.clone() {
-                    if let Some(prev_rc) = prev_weak.upgrade() {
-                        let prev_node_ref = prev_rc.borrow();
-                        bp_counts.remove((prev_node_ref.val, node.borrow().val), 1);                                    
-                        bp_counts.add((prev_node_ref.val, current_vocab_size), 1);                      
+                    new_token = Token { 
+                        val: current_vocab_size, 
+                        prev: left_token.prev
                     }
+
+                    block.remove(token_idx);
+                    block.remove(token_idx);
+                    block.insert(token_idx);
                 }
 
-                // To update node.val we need to mutably borrow node
-                // To delete node.next we need to mutably borrow node.next.prev == node
-                // Therefore we need two mutable references to the same node: Not allowed!
-                // This means we have to carefully do one and then the other in different scopes.
-                let next_rc_opt = {
-                    let mut node_ref = node.borrow_mut(); 
-                    let next_rc = node_ref.next.take();
-                    node_ref.val = current_vocab_size;
-                    next_rc 
-                }; 
-
-                if let Some(next_rc) = next_rc_opt {
-                    next_rc.borrow_mut().delete(); 
-                }
-
-                indexed_blocks.update_index(&node); 
+                token_idx += 1;
             }
         }
         current_vocab_size += 1;
@@ -124,7 +93,7 @@ pub fn bpe(blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)>,Ve
         println!("BPE algorithm complete in {:.2} seconds", duration.as_secs());
     }
     
-    (merges, indexed_blocks.drain_blocks())
+    (merges, indexed_ blocks.drain_blocks())
 }
 
 #[cfg(test)]
