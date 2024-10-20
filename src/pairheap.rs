@@ -38,13 +38,13 @@ impl<'a> PairHeap<'a> {
         };
 
         // Process each block to extract pairs and add them to the heap
-        for block in data {
+        for (block_idx,block) in data.into_iter().enumerate() {
             // Extract adjacent pairs
             if block.len() >= 2 {
                 for pair in block.windows(2) {
                     let a = pair[0];
                     let b = pair[1];
-                    ph.add((a, b), 1);
+                    ph.add((a, b), 1, block_idx);
                 }
             }
         }
@@ -55,8 +55,9 @@ impl<'a> PairHeap<'a> {
         ph
     }
 
-    pub fn add(&mut self, item: (u32, u32), count: u64) {
+    pub fn add(&mut self, item: (u32, u32), count: u64, block_idx: usize) {
         *self.to_add.entry(item).or_insert(0) += count;
+        self.to_add_block_ids.entry(item).or_insert(HashSet::new()).insert(block_idx);
     }
 
 
@@ -133,7 +134,6 @@ impl<'a> PairHeap<'a> {
             {
                 let node = &mut self.pairs[node_idx];
 
-                
                 node.count -= count;
                 heap_pos = node.heap_pos;
             }
@@ -234,14 +234,13 @@ impl<'a> PairHeap<'a> {
     fn print_heap(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let heap_size = self.heap.len();
         let height = (heap_size as f64).log2().ceil() as usize;
-        let max_width = 2usize.pow(height as u32) * 4; // Adjust width per node if needed
-
+        let max_width = 2usize.pow(height as u32) * 5;
         for level in 0..height {
-            let level_pairs = 2usize.pow(level as u32);
-            let indent_space = max_width / (level_pairs * 2);
-            let between_space = max_width / level_pairs - indent_space * 2;
-            let start = level_pairs - 1;
-            let end = min(start + level_pairs, heap_size);
+            let n_pairs = 2usize.pow(level as u32);
+            let indent_space = max_width / (n_pairs * 2);
+            let between_space = max_width / n_pairs - indent_space * 2;
+            let start = n_pairs - 1;
+            let end = min(start + n_pairs, heap_size);
 
             // Print pairs
             let mut line = String::new();
@@ -288,5 +287,104 @@ impl<'a> PairHeap<'a> {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use mpi::topology::Communicator;
+
+    /// Function to create your test data
+    fn create_data() -> Vec<Vec<u32>> {
+        vec![
+            vec![1, 2, 3],
+            vec![2, 3, 4],
+            vec![3, 4, 5, 3, 4],
+        ]
+    }
+
+    #[test]
+    fn test_pairheap_all() {
+        // Initialize MPI once
+        let universe = mpi::initialize().expect("Failed to initialize MPI");
+        let world = universe.world();
+        let size = world.size() as u64;
+
+        // Test 1: PairHeap Initialization
+        {
+            // Each process initializes its data block
+            let data = create_data();
+            let mut ph = PairHeap::new(&data, &world);
+
+            // On all ranks, check the most common pair after initialization
+            if let Some((pair, count, _block_ids)) = ph.most_common() {
+                assert_eq!(pair, (3, 4), "Most common pair mismatch during initialization");
+                assert_eq!(count, 3 * size, "Count of (3,4) mismatch during initialization");
+            } else {
+                panic!("most_common() returned None unexpectedly during initialization");
+            }
+        }
+
+        // Test 2: PairHeap Addition
+        {
+            let data = create_data();
+            let mut ph = PairHeap::new(&data, &world);
+
+            ph.add((4, 5), 1, 1);
+
+            if let Some((pair, count, _block_ids)) = ph.most_common() {
+                assert_eq!(pair, (3, 4), "Most common pair mismatch after first addition");
+                assert_eq!(count, 3 * size, "Count of (3,4) mismatch after first addition");
+            } else {
+                panic!("most_common() returned None unexpectedly after first addition");
+            }
+
+            ph.add((1, 2), 3, 0);
+
+            if let Some((pair, count, _block_ids)) = ph.most_common() {
+                assert_eq!(pair, (1, 2), "Most common pair mismatch after second addition");
+                assert_eq!(count, 4 * size, "Count of (1,2) mismatch after second addition");
+            } else {
+                panic!("most_common() returned None unexpectedly after second addition");
+            }
+        }
+
+        // Test 3: PairHeap Removal
+        {
+            let data = create_data();
+            let mut ph = PairHeap::new(&data, &world);
+
+            // Test removal functionality
+            ph.remove((3, 4), 1); // Remove 1 occurrence of (3, 4)
+
+            // After removing, (3,4) should still be the most common, but with count 1
+            if let Some((pair, count, _block_ids)) = ph.most_common() {
+                assert_eq!(pair, (3, 4), "Most common pair mismatch after removal");
+                assert_eq!(count, 2*size, "Count of (3,4) mismatch after removal");
+            } else {
+                panic!("most_common() returned None unexpectedly after removal");
+            }
+        }
+
+        // Test 4: Heap Structure
+        {
+            let data = create_data();
+            let mut ph = PairHeap::new(&data, &world);
+
+            // Add additional data to ensure the heap is not empty
+            ph.add((4, 5), 2, 0);
+            ph.most_common();
+
+            let rank = world.rank();
+
+            // Print the heap structure (this is for visual inspection)
+            if rank == 0 {
+                println!("{:?}", ph);
+            }
+
+            // We expect no panic, just visual confirmation of correct heap formatting
+        }
     }
 }

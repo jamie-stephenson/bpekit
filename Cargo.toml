@@ -11,4 +11,3 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 pyo3 = { version = "0.18", features = ["extension-module", "abi3-py311"] }
 mpi = "0.8"
-collection_macros = "0.2.0"
