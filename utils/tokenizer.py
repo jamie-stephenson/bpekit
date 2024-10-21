@@ -1,6 +1,6 @@
 from .indexedlist import IndexedList
-from rustbpe import bpe
 
+from tokenizers import ByteLevelBPETokenizer
 import multiprocessing as mp
 import numpy as np
 from tqdm.auto import tqdm
@@ -42,12 +42,14 @@ class Tokenizer:
 
         print(f"Rank {self.rank} ready to train.")
 
-        blocks_str = self.regex_split('\n'.join(self.corpus['text']))
-        blocks_utf8 = [block_str.encode('utf-8') for block_str in blocks_str]
+        blocks_utf8 = [
+            block 
+            for doc in self.corpus['text']
+            for block in self.regex_split(doc)
+        ]
+        tokenizer = ByteLevelBPETokenizer()
+        tokenizer.train_from_iterator(blocks_utf8,vocab_size=vocab_size)
         
-        self.merges, self.blocks = bpe(blocks_utf8,vocab_size) 
-
-
     #----------------------ENCODING-METHODS------------------------
 
     def encode(self, text: str) -> List[int]:
