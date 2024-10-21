@@ -20,8 +20,8 @@ fn split_u64(key: u64) -> (u32, u32) {
 // All Reduce collective communication that ensures the same output on all ranks
 pub fn all_reduce_counts(
     world: &mpi::topology::SimpleCommunicator,
-    local_counts: Vec<((u32, u32), u64)>,
-) -> Vec<((u32, u32), u64)> {
+    local_counts: Vec<((u32, u32), i32)>,
+) -> Vec<((u32, u32), i32)> {
 
     let local_size = local_counts.len() * 2;
     let mut flat_local_data = Vec::with_capacity(local_size);

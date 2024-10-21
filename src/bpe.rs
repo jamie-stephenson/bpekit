@@ -31,18 +31,23 @@ pub fn bpe(mut blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)
 
     while current_vocab_size < vocab_size {
 
-        let ((left,right),count,block_ids) = match bp_counts.most_common() { 
+        let pair = match bp_counts.heap.pop() { 
             Some(tuple) => tuple,
             None => break // Exit the loop if no pairs are left
         };
 
+        
+        // VERIFY NOT STALE HERE
+        
+        let (left,right) = pair.vals;
+
         if rank == 0 {
-            println!("New bytepair merge {:?} -> {:?} with count {:?}.", (left,right), current_vocab_size, count);
+            println!("New bytepair merge {:?} -> {:?} with count {:?}.", pair.vals, current_vocab_size, pair.count);
         }
 
-        merges.push(((left,right), current_vocab_size));
+        merges.push((pair.vals, current_vocab_size));
 
-        for block_idx in block_ids {
+        for block_idx in pair.block_ids {
 
             let block = &mut blocks[block_idx];
             let mut token_idx = 0;
@@ -51,13 +56,14 @@ pub fn bpe(mut blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)
                 
                 if block[token_idx] == left && token_idx + 1 < block.len() && block[token_idx+1] == right {
 
-                    bp_counts.remove((left,right), 1);
+                    bp_counts.change(pair.vals, -1);
        
                     // Handle the previous token if it exists
                     if token_idx > 0 {
                         let prev_token = block[token_idx-1];
-                        bp_counts.remove((prev_token, left), 1);                                    
-                        bp_counts.add((prev_token, current_vocab_size), 1, block_idx);
+                        bp_counts.change((prev_token, left), -1);                                    
+                        bp_counts.change((prev_token, current_vocab_size), 1);
+                        bp_counts.add_block_idx((prev_token, current_vocab_size),block_idx);
                     }
                     
                     block[token_idx] = current_vocab_size;
@@ -66,8 +72,9 @@ pub fn bpe(mut blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)
                     // Handle the next token if it exists
                     if token_idx + 1 < block.len() {
                         let next_token = block[token_idx+1];
-                        bp_counts.remove((right, next_token), 1);                                             
-                        bp_counts.add((current_vocab_size, next_token), 1, block_idx);
+                        bp_counts.change((right, next_token), -1);                                             
+                        bp_counts.change((current_vocab_size, next_token), 1);
+                        bp_counts.add_block_idx((current_vocab_size, next_token), block_idx);
                     }
                 }
                 token_idx += 1;
