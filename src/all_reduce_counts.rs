@@ -69,10 +69,7 @@ pub fn all_reduce_counts(
     for chunk in buf.chunks_exact(2) {
         let key = chunk[0];
         let count = chunk[1];
-        map
-            .entry(key)
-            .and_modify(|c| *c += count)
-            .or_insert(count);
+
         if let Some(entry) = map.get_mut(&key) {
             // If the key exists, add the count
             *entry += count;

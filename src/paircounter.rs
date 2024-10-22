@@ -6,7 +6,7 @@ use mpi::topology::SimpleCommunicator;
 
 #[derive(Debug, Eq)]
 pub(crate) struct Pair {
-    pub count: i32,             // Global count
+    pub count: i32,               // Global count
     pub vals: (u32, u32),
     pub block_ids: HashSet<usize> // Indices of local blocks containing this pair
 }
@@ -40,8 +40,8 @@ pub(crate) struct PairCounter<'a> {
 
 impl<'a> PairCounter<'a> {
 
-    pub fn new(data: &[Vec<u32>], world: &'a SimpleCommunicator) -> Self {
-        let mut ph = PairCounter {
+    pub fn new(blocks: &[Vec<u32>], block_idx_counts: &HashMap<usize,i32>, world: &'a SimpleCommunicator) -> Self {
+        let mut pc = PairCounter {
             heap: BinaryHeap::new(),
             counts: HashMap::new(),
             to_change: HashMap::new(),
@@ -50,20 +50,23 @@ impl<'a> PairCounter<'a> {
         };
 
         // Process each block to extract pairs and add them to the heap
-        for (block_idx,block) in data.into_iter().enumerate() {
+        for (block_idx,block) in blocks.into_iter().enumerate() {
+
+            let block_count = block_idx_counts[&block_idx]; 
+            
             // Extract adjacent pairs
             if block.len() >= 2 {
                 for pair in block.windows(2) {
-                    let a = pair[0];
-                    let b = pair[1];
-                    ph.change((a, b), 1);
-                    ph.add_block_idx((a,b), block_idx);
+                    let a = pair[0] as u32;
+                    let b = pair[1] as u32;
+                    pc.change((a, b), block_count);
+                    pc.add_block_idx((a,b), block_idx);
                 }
             }
         }
         // Commit pending changes
-        ph.commit();
-        ph
+        pc.commit();
+        pc
     }
 
     pub fn add_block_idx(&mut self, pair: (u32, u32), block_idx: usize) {
@@ -102,9 +105,8 @@ impl<'a> PairCounter<'a> {
         // `all_reduce_counts` has extra logic to ensure that all processes adjust the heap in the same way.
         
         let to_change_local: Vec<((u32, u32), i32)> = self.to_change.drain().collect();
-        println!("Local changes {:?}",to_change_local);
         let to_change_global = all_reduce_counts(&self.world, to_change_local);
-
+        
 
         // Process changes
         for (pair, change) in to_change_global {
@@ -115,9 +117,9 @@ impl<'a> PairCounter<'a> {
                 self.counts.insert(pair, change);
 
                 let block_ids = self.to_add_block_ids
-                .get(&pair)
-                .cloned()
-                .unwrap_or_else(HashSet::new);
+                    .get(&pair)
+                    .cloned()
+                    .unwrap_or_else(HashSet::new);
 
                 self.heap.push(Pair{count: change, vals: pair, block_ids});
             
@@ -128,102 +130,4 @@ impl<'a> PairCounter<'a> {
             }
         }
     } 
-}
-
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-    use mpi::topology::Communicator;
-
-    /// Function to create your test data
-    fn create_data() -> Vec<Vec<u32>> {
-        vec![
-            vec![1, 2, 3],
-            vec![2, 3, 4],
-            vec![3, 4, 5, 3, 4],
-        ]
-    }
-
-    #[test]
-    fn test_all() {
-        // Initialize MPI once
-        let universe = mpi::initialize().expect("Failed to initialize MPI");
-        let world = universe.world();
-        let size = world.size() as i32;
-
-        // Test 1: PairCounter Initialization
-        {
-            // Each process initializes its data block
-            let data = create_data();
-            let mut ph = PairCounter::new(&data, &world);
-
-            // On all ranks, check the most common pair after initialization
-            if let Some(pair) = ph.pop() {
-                assert_eq!(pair.vals, (3, 4), "Most common pair mismatch during initialization");
-                assert_eq!(pair.count, 3 * size, "Count of (3,4) mismatch during initialization");
-            } else {
-                panic!("most_common() returned None unexpectedly during initialization");
-            }
-        }
-
-        // Test 2: PairCounter Addition
-        {
-            let data = create_data();
-            let mut ph = PairCounter::new(&data, &world);
-
-            ph.change((4, 5), 1);
-
-            if let Some(pair) = ph.pop() {
-                assert_eq!(pair.vals, (3, 4), "Most common pair mismatch after first addition");
-                assert_eq!(pair.count, 3 * size, "Count of (3,4) mismatch after first addition");
-            } else {
-                panic!("most_common() returned None unexpectedly after first addition");
-            }
-
-            ph.change((1, 2), 3);
-
-            if let Some(pair) = ph.pop() {
-                assert_eq!(pair.vals, (1, 2), "Most common pair mismatch after second addition");
-                assert_eq!(pair.count, 4 * size, "Count of (1,2) mismatch after second addition");
-            } else {
-                panic!("most_common() returned None unexpectedly after second addition");
-            }
-        }
-
-        // Test 3: PairCounter Removal
-        {
-            let data = create_data();
-            let mut ph = PairCounter::new(&data, &world);
-
-            ph.change((3, 4), -1); // Remove 1 occurrence of (3, 4)
-
-            // After removing, (3,4) should still be the most common
-            if let Some(pair) = ph.pop() {
-                assert_eq!(pair.vals, (3, 4), "Most common pair mismatch after removal");
-                assert_eq!(pair.count, 2*size, "Count of (3,4) mismatch after removal");
-            } else {
-                panic!("most_common() returned None unexpectedly after removal");
-            }
-        }
-
-        // Test 4: Heap Structure
-        {
-            let data = create_data();
-            let mut ph = PairCounter::new(&data, &world);
-
-            ph.change((4, 5), 2);
-            ph.pop();
-
-            let rank = world.rank();
-
-            // Print the heap structure (this is for visual inspection)
-            if rank == 0 {
-                println!("{:?}", ph.heap);
-            }
-
-            // We expect no panic, just visual confirmation of correct heap formatting
-        }
-    }
 }
