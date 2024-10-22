@@ -1,4 +1,4 @@
-use crate::pairheap::PairHeap;
+use crate::paircounter::PairCounter;
 
 use std::time::Instant;
 
@@ -18,8 +18,10 @@ pub fn bpe(mut blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)
     if rank == 0 {
         println!("Running BPE algorithm...");
     }
-   
-    let mut bp_counts = PairHeap::new(&blocks,&world);    
+
+    println!("Rank {:?}", rank);
+
+    let mut bp_counts = PairCounter::new(&blocks,&world);    
 
     if rank == 0 {
         let init_duration = start.elapsed();
@@ -31,13 +33,15 @@ pub fn bpe(mut blocks: Vec<Vec<u32>>, vocab_size: u32) -> (Vec<((u32, u32), u32)
 
     while current_vocab_size < vocab_size {
 
-        let pair = match bp_counts.heap.pop() { 
-            Some(tuple) => tuple,
+        let pair = match bp_counts.pop() { 
+            Some(item) => item,
             None => break // Exit the loop if no pairs are left
         };
 
-        
-        // VERIFY NOT STALE HERE
+        if bp_counts.is_stale(&pair) {
+            bp_counts.update_count_and_push(pair);
+            continue;
+        }
         
         let (left,right) = pair.vals;
 

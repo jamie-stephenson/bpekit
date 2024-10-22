@@ -30,18 +30,18 @@ impl PartialOrd for Pair {
 }
 
 // struct to maintain counts across all processes
-pub(crate) struct PairHeap<'a> {
-    pub heap: BinaryHeap<Pair>,                             // Heap of indices into pairs, maintained based on global counts
+pub(crate) struct PairCounter<'a> {
+    heap: BinaryHeap<Pair>,                                 // Heap of pairs, maintained based on global counts
     counts: HashMap<(u32, u32), i32>,                       // Map from pair to global count, used to validate the top of the heap
     to_change: HashMap<(u32, u32), i32>,                    // Pending changes
     to_add_block_ids: HashMap<(u32, u32), HashSet<usize>>,  // Local block ids of the pending additions
     world: &'a SimpleCommunicator                           // For collective comms
 }
 
-impl<'a> PairHeap<'a> {
+impl<'a> PairCounter<'a> {
 
     pub fn new(data: &[Vec<u32>], world: &'a SimpleCommunicator) -> Self {
-        let mut ph = PairHeap {
+        let mut ph = PairCounter {
             heap: BinaryHeap::new(),
             counts: HashMap::new(),
             to_change: HashMap::new(),
@@ -61,10 +61,8 @@ impl<'a> PairHeap<'a> {
                 }
             }
         }
-
         // Commit pending changes
         ph.commit();
-
         ph
     }
 
@@ -82,6 +80,21 @@ impl<'a> PairHeap<'a> {
             .or_insert(count);
     }
 
+    pub fn pop(&mut self) -> Option<Pair> {
+        self.commit();
+        self.heap.pop()
+    }
+
+    // check if pair is stale
+    pub fn is_stale(&mut self, pair: &Pair) -> bool {
+        pair.count != self.counts[&pair.vals]
+    }
+
+    pub fn update_count_and_push(&mut self, mut pair: Pair) {
+        pair.count = self.counts[&pair.vals];
+        self.heap.push(pair)
+    }    
+
     // Commit pending changes
     fn commit(&mut self) {
 
@@ -89,7 +102,9 @@ impl<'a> PairHeap<'a> {
         // `all_reduce_counts` has extra logic to ensure that all processes adjust the heap in the same way.
         
         let to_change_local: Vec<((u32, u32), i32)> = self.to_change.drain().collect();
+        println!("Local changes {:?}",to_change_local);
         let to_change_global = all_reduce_counts(&self.world, to_change_local);
+
 
         // Process changes
         for (pair, change) in to_change_global {
@@ -132,63 +147,62 @@ mod tests {
     }
 
     #[test]
-    fn test_pairheap_all() {
+    fn test_all() {
         // Initialize MPI once
         let universe = mpi::initialize().expect("Failed to initialize MPI");
         let world = universe.world();
-        let size = world.size() as u64;
+        let size = world.size() as i32;
 
-        // Test 1: PairHeap Initialization
+        // Test 1: PairCounter Initialization
         {
             // Each process initializes its data block
             let data = create_data();
-            let mut ph = PairHeap::new(&data, &world);
+            let mut ph = PairCounter::new(&data, &world);
 
             // On all ranks, check the most common pair after initialization
-            if let Some((pair, count, _block_ids)) = ph.most_common() {
-                assert_eq!(pair, (3, 4), "Most common pair mismatch during initialization");
-                assert_eq!(count, 3 * size, "Count of (3,4) mismatch during initialization");
+            if let Some(pair) = ph.pop() {
+                assert_eq!(pair.vals, (3, 4), "Most common pair mismatch during initialization");
+                assert_eq!(pair.count, 3 * size, "Count of (3,4) mismatch during initialization");
             } else {
                 panic!("most_common() returned None unexpectedly during initialization");
             }
         }
 
-        // Test 2: PairHeap Addition
+        // Test 2: PairCounter Addition
         {
             let data = create_data();
-            let mut ph = PairHeap::new(&data, &world);
+            let mut ph = PairCounter::new(&data, &world);
 
-            ph.add((4, 5), 1, 1);
+            ph.change((4, 5), 1);
 
-            if let Some((pair, count, _block_ids)) = ph.most_common() {
-                assert_eq!(pair, (3, 4), "Most common pair mismatch after first addition");
-                assert_eq!(count, 3 * size, "Count of (3,4) mismatch after first addition");
+            if let Some(pair) = ph.pop() {
+                assert_eq!(pair.vals, (3, 4), "Most common pair mismatch after first addition");
+                assert_eq!(pair.count, 3 * size, "Count of (3,4) mismatch after first addition");
             } else {
                 panic!("most_common() returned None unexpectedly after first addition");
             }
 
-            ph.add((1, 2), 3, 0);
+            ph.change((1, 2), 3);
 
-            if let Some((pair, count, _block_ids)) = ph.most_common() {
-                assert_eq!(pair, (1, 2), "Most common pair mismatch after second addition");
-                assert_eq!(count, 4 * size, "Count of (1,2) mismatch after second addition");
+            if let Some(pair) = ph.pop() {
+                assert_eq!(pair.vals, (1, 2), "Most common pair mismatch after second addition");
+                assert_eq!(pair.count, 4 * size, "Count of (1,2) mismatch after second addition");
             } else {
                 panic!("most_common() returned None unexpectedly after second addition");
             }
         }
 
-        // Test 3: PairHeap Removal
+        // Test 3: PairCounter Removal
         {
             let data = create_data();
-            let mut ph = PairHeap::new(&data, &world);
+            let mut ph = PairCounter::new(&data, &world);
 
-            // Test removal functionality
-            ph.remove((3, 4), 1); // Remove 1 occurrence of (3, 4)
+            ph.change((3, 4), -1); // Remove 1 occurrence of (3, 4)
 
-            // After removing, (3,4) should still be the most common, but with count 1
-            if let Some((pair, count, _block_ids)) = ph.most_common() {
-                assert_eq!(pair, (3, 4), "Most common pair mismatch after removal");
-                assert_eq!(count, 2*size, "Count of (3,4) mismatch after removal");
+            // After removing, (3,4) should still be the most common
+            if let Some(pair) = ph.pop() {
+                assert_eq!(pair.vals, (3, 4), "Most common pair mismatch after removal");
+                assert_eq!(pair.count, 2*size, "Count of (3,4) mismatch after removal");
             } else {
                 panic!("most_common() returned None unexpectedly after removal");
             }
@@ -197,17 +211,16 @@ mod tests {
         // Test 4: Heap Structure
         {
             let data = create_data();
-            let mut ph = PairHeap::new(&data, &world);
+            let mut ph = PairCounter::new(&data, &world);
 
-            // Add additional data to ensure the heap is not empty
-            ph.add((4, 5), 2, 0);
-            ph.most_common();
+            ph.change((4, 5), 2);
+            ph.pop();
 
             let rank = world.rank();
 
             // Print the heap structure (this is for visual inspection)
             if rank == 0 {
-                println!("{:?}", ph);
+                println!("{:?}", ph.heap);
             }
 
             // We expect no panic, just visual confirmation of correct heap formatting

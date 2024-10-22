@@ -1,4 +1,4 @@
-pub mod pairheap;
+pub mod paircounter;
 mod all_reduce_counts;
 mod bpe;
 
