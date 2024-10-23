@@ -1,12 +1,68 @@
 use crate::paircounter::PairCounter;
 
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use std::time::Instant;
 
+use rayon::prelude::*;
 use counter::Counter;
 use mpi::initialize;
 use mpi::topology::Communicator;
 use pyo3::prelude::*;
+
+fn perform_merge_in_block(
+    left: u32,
+    right:u32,
+    new: u32, 
+    block_idx: usize,
+    block: &mut Vec<u32>
+) -> HashMap<(u32,u32),(i32,Vec<usize>)> {
+
+    let mut changes: HashMap<(u32,u32),(i32,Vec<usize>)> = HashMap::new();
+    let mut token_idx = 0;
+
+    while token_idx < block.len() {
+        
+        if block[token_idx] == left && token_idx + 1 < block.len() && block[token_idx+1] == right {
+
+            changes
+                .entry((left, right))
+                .and_modify(|(change,idx)| *change -= 1)
+                .or_insert((-1,vec![]));
+
+            // Handle the previous token if it exists
+            if token_idx > 0 {
+                let prev_token = block[token_idx-1];
+                changes
+                    .entry((prev_token, left))
+                    .and_modify(|(change,_idx)| *change -= 1)
+                    .or_insert((-1,vec![]));
+                changes
+                    .entry((prev_token, new))
+                    .and_modify(|(change,_idx)| *change += 1)
+                    .or_insert((1,vec![block_idx]));
+            }
+            
+            block[token_idx] = new;
+            block.remove(token_idx+1);
+            
+            // Handle the next token if it exists
+            if token_idx + 1 < block.len() {
+                let next_token = block[token_idx+1]; 
+                changes
+                    .entry((right, next_token))
+                    .and_modify(|(change,_idx)| *change -= 1)
+                    .or_insert((-1,vec![]));
+                changes
+                    .entry((new, next_token))
+                    .and_modify(|(change,_idx)| *change += 1)
+                    .or_insert((1,vec![block_idx]));
+            }
+        }
+        token_idx += 1;
+    }
+    changes
+}
+
 
 #[pyfunction]
 pub fn bpe(all_blocks: Vec<Vec<u8>>, vocab_size: u32) -> Vec<((u32, u32), u32)> {
@@ -24,13 +80,12 @@ pub fn bpe(all_blocks: Vec<Vec<u8>>, vocab_size: u32) -> Vec<((u32, u32), u32)> 
         println!("Running BPE algorithm...");
     }
 
-    // Extract blocks and indexed counts 
-    let counter = all_blocks.into_iter().collect::<Counter<_>>();
-
+    
     // Extract unique blocks and index their counts
+    let block_counter = all_blocks.into_iter().collect::<Counter<_>>();
     let mut blocks: Vec<Vec<u32>> = Vec::new();
     let mut block_idx_counts: HashMap<usize, i32> = HashMap::new();
-    for (index, (block, count)) in counter.into_iter().enumerate() {
+    for (index, (block, count)) in block_counter.into_iter().enumerate() {
         blocks.push(
             block
                 .into_iter()
@@ -73,40 +128,38 @@ pub fn bpe(all_blocks: Vec<Vec<u8>>, vocab_size: u32) -> Vec<((u32, u32), u32)> 
 
         merges.push((pair.vals, current_vocab_size));
 
-        for block_idx in pair.block_ids {
-
-            let block = &mut blocks[block_idx];
-            let block_count = block_idx_counts[&block_idx];
-            let mut token_idx = 0;
-
-            while token_idx < block.len() {
-                
-                if block[token_idx] == left && token_idx + 1 < block.len() && block[token_idx+1] == right {
-
-                    bp_counts.change(pair.vals, -block_count);
-       
-                    // Handle the previous token if it exists
-                    if token_idx > 0 {
-                        let prev_token = block[token_idx-1];
-                        bp_counts.change((prev_token, left), -block_count);                                    
-                        bp_counts.change((prev_token, current_vocab_size), block_count);
-                        bp_counts.add_block_idx((prev_token, current_vocab_size),block_idx);
-                    }
-                    
-                    block[token_idx] = current_vocab_size;
-                    block.remove(token_idx+1);
-                    
-                    // Handle the next token if it exists
-                    if token_idx + 1 < block.len() {
-                        let next_token = block[token_idx+1];
-                        bp_counts.change((right, next_token), -block_count);                                             
-                        bp_counts.change((current_vocab_size, next_token), block_count);
-                        bp_counts.add_block_idx((current_vocab_size, next_token), block_idx);
-                    }
+        let changes: Vec<((u32, u32), (i32, Vec<usize>))> = pair.block_ids
+            .par_iter()
+            .map(|&block_idx| {
+                let block_ptr = &blocks[block_idx] as *const _ as *mut Vec<u32>;
+                unsafe {
+                    perform_merge_in_block(
+                        left, 
+                        right, 
+                        current_vocab_size,
+                        block_idx, 
+                        &mut *block_ptr
+                    )
                 }
-                token_idx += 1;
-            }
-        }
+            })
+            .reduce(
+                || HashMap::new(),
+                |mut changes1, changes2| {
+                    for (pair, (change, block_ids)) in changes2 {
+                        changes1
+                            .entry(pair)
+                            .and_modify(|(change,ids)| {
+                                *change += 1;
+                                ids.append(&mut block_ids);
+                            })                             
+                            .or_insert((change,block_ids));
+                    }
+                    changes1
+                },
+            ).into_iter().collect();
+
+        bp_counts.
+
         current_vocab_size += 1;
     }
 

@@ -33,8 +33,6 @@ impl PartialOrd for Pair {
 pub(crate) struct PairCounter<'a> {
     heap: BinaryHeap<Pair>,                                 // Heap of pairs, maintained based on global counts
     counts: HashMap<(u32, u32), i32>,                       // Map from pair to global count, used to validate the top of the heap
-    to_change: HashMap<(u32, u32), i32>,                    // Pending changes
-    to_add_block_ids: HashMap<(u32, u32), HashSet<usize>>,  // Local block ids of the pending additions
     world: &'a SimpleCommunicator                           // For collective comms
 }
 
@@ -44,8 +42,6 @@ impl<'a> PairCounter<'a> {
         let mut pc = PairCounter {
             heap: BinaryHeap::new(),
             counts: HashMap::new(),
-            to_change: HashMap::new(),
-            to_add_block_ids: HashMap::new(),
             world: world
         };
 
@@ -67,13 +63,6 @@ impl<'a> PairCounter<'a> {
         // Commit pending changes
         pc.commit();
         pc
-    }
-
-    pub fn add_block_idx(&mut self, pair: (u32, u32), block_idx: usize) {
-        self.to_add_block_ids
-            .entry(pair)
-            .or_insert(HashSet::new())
-            .insert(block_idx);
     }
 
     pub fn change(&mut self, pair: (u32, u32), count: i32) {
@@ -99,14 +88,9 @@ impl<'a> PairCounter<'a> {
     }    
 
     // Commit pending changes
-    fn commit(&mut self) {
-
-        // NOTE: Hashmaps aren't ordered so draining them to an iterator here causes non-deterministic behaviour.
-        // `all_reduce_counts` has extra logic to ensure that all processes adjust the heap in the same way.
+    fn commit(&mut self, changes: Vec<((u32,u32),(i32,Vec<usize>))>) {
         
-        let to_change_local: Vec<((u32, u32), i32)> = self.to_change.drain().collect();
-        let to_change_global = all_reduce_counts(&self.world, to_change_local);
-        
+        let to_change_global = all_reduce_counts(&self.world, changes); 
 
         // Process changes
         for (pair, change) in to_change_global {
