@@ -1,5 +1,6 @@
 pub mod paircounter;
-mod all_reduce_counts;
+mod block;
+mod comms;
 mod bpe;
 
 use pyo3::prelude::*;

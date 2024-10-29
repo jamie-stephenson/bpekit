@@ -1,4 +1,5 @@
-use crate::all_reduce_counts::all_reduce_counts;
+use crate::block::Block;
+use crate::comms::all_reduce_changes;
 use std::collections::{HashMap,HashSet,BinaryHeap};
 use std::cmp::Ordering;
 
@@ -8,7 +9,7 @@ use mpi::topology::SimpleCommunicator;
 pub(crate) struct Pair {
     pub count: i32,               // Global count
     pub vals: (u32, u32),
-    pub block_ids: HashSet<usize> // Indices of local blocks containing this pair
+    pub block_ids: Vec<usize> // Indices of local blocks containing this pair at time of pair creation
 }
 
 impl PartialEq for Pair {
@@ -38,12 +39,14 @@ pub(crate) struct PairCounter<'a> {
 
 impl<'a> PairCounter<'a> {
 
-    pub fn new(blocks: &[Vec<u32>], block_idx_counts: &HashMap<usize,i32>, world: &'a SimpleCommunicator) -> Self {
+    pub fn new(blocks: &[Block], block_idx_counts: &HashMap<usize,i32>, world: &'a SimpleCommunicator) -> Self {
         let mut pc = PairCounter {
             heap: BinaryHeap::new(),
             counts: HashMap::new(),
             world: world
         };
+
+        let mut counts_map: HashMap<(u32,u32),(i32,HashSet<usize>)> = HashMap::new();
 
         // Process each block to extract pairs and add them to the heap
         for (block_idx,block) in blocks.into_iter().enumerate() {
@@ -51,29 +54,36 @@ impl<'a> PairCounter<'a> {
             let block_count = block_idx_counts[&block_idx]; 
             
             // Extract adjacent pairs
-            if block.len() >= 2 {
-                for pair in block.windows(2) {
+            if block.tokens.len() >= 2 {
+                for pair in block.tokens.windows(2) {
                     let a = pair[0] as u32;
                     let b = pair[1] as u32;
-                    pc.change((a, b), block_count);
-                    pc.add_block_idx((a,b), block_idx);
+                    counts_map.entry((a, b))
+                        .and_modify(|(count, set)| {
+                            *count += block_count; 
+                            set.insert(block_idx);
+                        })
+                        .or_insert_with(|| {
+                            let mut set = HashSet::new();
+                            set.insert(block_idx);
+                            (block_count, set)
+                        });
                 }
             }
         }
+
+        // Convert to Vec
+        let counts_vec: Vec<((u32, u32), (i32, Vec<usize>))> = counts_map
+            .into_iter()
+            .map(|(pair, (count, block_ids))| (pair, (count, block_ids.into_iter().collect())))
+            .collect();
+
         // Commit pending changes
-        pc.commit();
+        pc.commit(counts_vec);
         pc
     }
 
-    pub fn change(&mut self, pair: (u32, u32), count: i32) {
-        self.to_change
-            .entry(pair)
-            .and_modify(|c| *c += count)
-            .or_insert(count);
-    }
-
     pub fn pop(&mut self) -> Option<Pair> {
-        self.commit();
         self.heap.pop()
     }
 
@@ -88,22 +98,26 @@ impl<'a> PairCounter<'a> {
     }    
 
     // Commit pending changes
-    fn commit(&mut self, changes: Vec<((u32,u32),(i32,Vec<usize>))>) {
-        
-        let to_change_global = all_reduce_counts(&self.world, changes); 
+    pub fn commit(&mut self, changes: Vec<((u32,u32),(i32,Vec<usize>))>) {
+
+        let (local_changes, local_new_block_ids): (Vec<((u32,u32),i32)>, HashMap<(u32,u32),Vec<usize>>) = changes.into_iter()
+            .map(|(pair, (change, block_ids))| ((pair, change), (pair, block_ids)))
+            .unzip();
+
+        let global_changes = all_reduce_changes(&self.world, local_changes); 
 
         // Process changes
-        for (pair, change) in to_change_global {
+        for (pair, change) in global_changes {
             
             // You only ever have a positive change when you are introducing a new pair.
             // Add new pairs to the heap. 
             if change > 0 { 
                 self.counts.insert(pair, change);
 
-                let block_ids = self.to_add_block_ids
+                let block_ids = local_new_block_ids
                     .get(&pair)
                     .cloned()
-                    .unwrap_or_else(HashSet::new);
+                    .unwrap_or_else(Vec::new);
 
                 self.heap.push(Pair{count: change, vals: pair, block_ids});
             
