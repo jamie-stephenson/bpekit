@@ -1,13 +1,13 @@
-mod indexed_blocks;
-mod multiset;
-mod all_reduce_counts;
-mod bpe;
+pub mod train;
+pub mod encode;
+mod comms;
 
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
 
 #[pymodule]
 fn rustbpe(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(bpe::bpe, m)?)?;  
+    m.add_function(wrap_pyfunction!(train::train, m)?)?;  
+    m.add_function(wrap_pyfunction!(encode::encode, m)?)?;  
     Ok(())
 }

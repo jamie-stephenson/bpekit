@@ -1,10 +1,11 @@
 from .indexedlist import IndexedList
-from rustbpe import bpe
+from rustbpe import train, encode
 
-import multiprocessing as mp
+from datasets import Dataset
 import numpy as np
 from tqdm.auto import tqdm
 
+import multiprocessing as mp
 import os
 import re
 import pickle
@@ -15,52 +16,47 @@ class Tokenizer:
     """
     Class for training and using tokenizers that is (almost) distribution agnositic.
     """
-    def __init__(self, merges, rank, world_size, pattern=r'\s?\w+|\s?[^a-zA-Z0-9\s]+|\s+(?=\s)') -> None:
+    def __init__(self, merges, rank, world_size) -> None:
         self.rank = rank
         self.world_size = world_size
         self.merges = merges
-        self.pattern = re.compile(pattern)
 
     @classmethod
     def from_pickled_merges(cls, path, rank=0, world_size=1):
         return cls(cls.load_merges(path), rank, world_size)
 
     @classmethod
-    def from_dataset(cls, dataset, vocab_size, rank, world_size):
+    def from_dataset(
+        cls, 
+        dataset: Dataset, 
+        vocab_size: int, 
+        rank: int, 
+        world_size: int, 
+        pattern=r'\s?\w+|\s?[^a-zA-Z0-9\s]+|\s+(?=\s)'
+    ):
         """
-        Trains new tokenizer from a dataset. When using distributed training, `corpus` 
+        Trains new tokenizer from a dataset. When using distributed training, `dataset` 
         should be the chunk of the dataset that the current rank will handle.
         """
-        tokenizer = cls([], rank, world_size)
-        tokenizer.corpus = dataset
-        tokenizer.__train(vocab_size)
+        print(f"Rank {rank} ready to train.")
+
+        compiled_pattern = re.compile(pattern)
+
+        blocks_str = re.findall(compiled_pattern, '\n'.join(dataset['text']))
+        blocks_utf8 = [block_str.encode('utf-8') for block_str in blocks_str]
+
+        merges = train(blocks_utf8,vocab_size) 
+
+        tokenizer  = cls(merges, rank, world_size)
 
         return tokenizer
-    
-    def __train(self, vocab_size: int):
-        """This method is only supposed to be accessed by the `from_corpus` factory method."""
-
-        print(f"Rank {self.rank} ready to train.")
-
-        blocks_str = self.regex_split('\n'.join(self.corpus['text']))
-        blocks_utf8 = [block_str.encode('utf-8') for block_str in blocks_str]
-        
-        self.merges, self.blocks = bpe(blocks_utf8,vocab_size) 
 
 
     #----------------------ENCODING-METHODS------------------------
 
     def encode(self, text: str) -> List[int]:
-        indexed_list = IndexedList(text.encode('utf-8'))
-        for bp, token in self.merges:
-            for node in indexed_list.index.get(bp,[]):
-                if node.val != bp[0] or node.next is None or node.next.val != bp[1]:
-                    continue  # The index was stale - continue.
-                node.next.delete() 
-                node.val = token 
-                indexed_list.update_index(node)
-        return [node.val for node in indexed_list]
-    
+        return encode(text.encode('utf-8'), self.merges)
+
     def save_encoded_corpus(self, dataset, path, shard_size):
         """
         Encode and save a corpus (that differs from the tokenizer corpus) 
@@ -181,6 +177,3 @@ class Tokenizer:
         return file_contents
     
     #-----------------END-OF-SAVING/LOADING-METHODS------------------
-
-    def regex_split(self, string):
-        return re.findall(self.pattern, string)
