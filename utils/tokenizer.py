@@ -1,10 +1,11 @@
 from .indexedlist import IndexedList
-from rustbpe import bpe
+from rustbpe import train, encode
 
-import multiprocessing as mp
+from datasets import Dataset
 import numpy as np
 from tqdm.auto import tqdm
 
+import multiprocessing as mp
 import os
 import re
 import pickle
@@ -25,7 +26,14 @@ class Tokenizer:
         return cls(cls.load_merges(path), rank, world_size)
 
     @classmethod
-    def from_dataset(cls, dataset, vocab_size, rank, world_size, pattern=r'\s?\w+|\s?[^a-zA-Z0-9\s]+|\s+(?=\s)'):
+    def from_dataset(
+        cls, 
+        dataset: Dataset, 
+        vocab_size: int, 
+        rank: int, 
+        world_size: int, 
+        pattern=r'\s?\w+|\s?[^a-zA-Z0-9\s]+|\s+(?=\s)'
+    ):
         """
         Trains new tokenizer from a dataset. When using distributed training, `dataset` 
         should be the chunk of the dataset that the current rank will handle.
@@ -37,7 +45,7 @@ class Tokenizer:
         blocks_str = re.findall(compiled_pattern, '\n'.join(dataset['text']))
         blocks_utf8 = [block_str.encode('utf-8') for block_str in blocks_str]
 
-        merges = bpe(blocks_utf8,vocab_size) 
+        merges = train(blocks_utf8,vocab_size) 
 
         tokenizer  = cls(merges, rank, world_size)
 
@@ -47,16 +55,8 @@ class Tokenizer:
     #----------------------ENCODING-METHODS------------------------
 
     def encode(self, text: str) -> List[int]:
-        indexed_list = IndexedList(text.encode('utf-8'))
-        for bp, token in self.merges:
-            for node in indexed_list.index.get(bp,[]):
-                if node.val != bp[0] or node.next is None or node.next.val != bp[1]:
-                    continue  # The index was stale - continue.
-                node.next.delete() 
-                node.val = token 
-                indexed_list.update_index(node)
-        return [node.val for node in indexed_list]
-    
+        return encode(text.encode('utf-8'), self.merges)
+
     def save_encoded_corpus(self, dataset, path, shard_size):
         """
         Encode and save a corpus (that differs from the tokenizer corpus) 
