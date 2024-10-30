@@ -39,7 +39,7 @@ pub(crate) struct PairCounter<'a> {
 
 impl<'a> PairCounter<'a> {
 
-    pub fn new(blocks: &[Block], block_idx_counts: &HashMap<usize,i32>, world: &'a SimpleCommunicator) -> Self {
+    pub fn new(blocks: &[Block], world: &'a SimpleCommunicator) -> Self {
         let mut pc = PairCounter {
             heap: BinaryHeap::new(),
             counts: HashMap::new(),
@@ -51,8 +51,6 @@ impl<'a> PairCounter<'a> {
         // Process each block to extract pairs and add them to the heap
         for (block_idx,block) in blocks.into_iter().enumerate() {
 
-            let block_count = block_idx_counts[&block_idx]; 
-            
             // Extract adjacent pairs
             if block.tokens.len() >= 2 {
                 for pair in block.tokens.windows(2) {
@@ -60,13 +58,13 @@ impl<'a> PairCounter<'a> {
                     let b = pair[1] as u32;
                     counts_map.entry((a, b))
                         .and_modify(|(count, set)| {
-                            *count += block_count; 
+                            *count += block.count; 
                             set.insert(block_idx);
                         })
                         .or_insert_with(|| {
                             let mut set = HashSet::new();
                             set.insert(block_idx);
-                            (block_count, set)
+                            (block.count, set)
                         });
                 }
             }

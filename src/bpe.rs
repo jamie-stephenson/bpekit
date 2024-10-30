@@ -31,14 +31,12 @@ pub fn bpe(all_blocks: Vec<Vec<u8>>, vocab_size: u32) -> Vec<((u32, u32), u32)> 
     // Extract unique blocks and index their counts
     let block_counter: Counter<Vec<u8>> = all_blocks.into_iter().collect();
     let mut blocks: Vec<Block> = Vec::new();
-    let mut block_idx_counts: HashMap<usize, i32> = HashMap::new();
-    for (index, (block, count)) in block_counter.into_iter().enumerate() {
-        blocks.push(Block::new(block));
-        block_idx_counts.insert(index, count as i32);
+    for (_idx, (block, count)) in block_counter.into_iter().enumerate() {
+        blocks.push(Block::new(block,count as i32));
     }
 
     // Init pair counter
-    let mut bp_counts = PairCounter::new(&blocks,&block_idx_counts,&world);    
+    let mut bp_counts = PairCounter::new(&blocks,&world);    
 
     // Log times
     if rank == 0 {
@@ -81,14 +79,14 @@ pub fn bpe(all_blocks: Vec<Vec<u8>>, vocab_size: u32) -> Vec<((u32, u32), u32)> 
             .reduce(
                 || HashMap::new(),
                 |mut changes1, changes2| {
-                    for (pair, (change, block_ids)) in changes2 {
+                    for (pair, (change2, block_ids)) in changes2 {
                         changes1
                             .entry(pair)
-                            .and_modify(|(change,ids)| {
-                                *change += 1;
+                            .and_modify(|(change1,ids)| {
+                                *change1 += change2;
                                 ids.append(&mut block_ids.clone());
                             })                             
-                            .or_insert((change,block_ids));
+                            .or_insert((change2,block_ids));
                     }
                     changes1
                 },

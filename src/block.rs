@@ -1,16 +1,18 @@
 use std::collections::HashMap;
 
 pub(crate) struct Block {
-    pub tokens: Vec<u32>
+    pub tokens: Vec<u32>,
+    pub count: i32
 }
 
 impl Block {
-    pub fn new(utf8_codepoints: Vec<u8>) -> Block {
+    pub fn new(utf8_codepoints: Vec<u8>, count: i32) -> Block {
         Block{ 
             tokens: utf8_codepoints
                 .into_iter()
                 .map(|byte| byte as u32)
-                .collect()
+                .collect(),
+            count: count
         }
     }
 
@@ -30,20 +32,20 @@ impl Block {
 
                 changes
                     .entry((left, right))
-                    .and_modify(|(change,_idx)| *change -= 1)
-                    .or_insert((-1,vec![]));
+                    .and_modify(|(change,_idx)| *change -= self.count)
+                    .or_insert((-self.count,vec![]));
 
                 // Handle the previous token if it exists
                 if token_idx > 0 {
                     let prev_token = self.tokens[token_idx-1];
                     changes
                         .entry((prev_token, left))
-                        .and_modify(|(change,_idx)| *change -= 1)
-                        .or_insert((-1,vec![]));
+                        .and_modify(|(change,_idx)| *change -= self.count)
+                        .or_insert((-self.count,vec![]));
                     changes
                         .entry((prev_token, new))
-                        .and_modify(|(change,_idx)| *change += 1)
-                        .or_insert((1,vec![block_idx]));
+                        .and_modify(|(change,_idx)| *change += self.count)
+                        .or_insert((self.count,vec![block_idx]));
                 }
                 
                 self.tokens[token_idx] = new;
@@ -54,12 +56,12 @@ impl Block {
                     let next_token = self.tokens[token_idx+1]; 
                     changes
                         .entry((right, next_token))
-                        .and_modify(|(change,_idx)| *change -= 1)
-                        .or_insert((-1,vec![]));
+                        .and_modify(|(change,_idx)| *change -= self.count)
+                        .or_insert((-self.count,vec![]));
                     changes
                         .entry((new, next_token))
-                        .and_modify(|(change,_idx)| *change += 1)
-                        .or_insert((1,vec![block_idx]));
+                        .and_modify(|(change,_idx)| *change += self.count)
+                        .or_insert((self.count,vec![block_idx]));
                 }
             }
             token_idx += 1;
