@@ -28,7 +28,7 @@ pub fn bpe(all_blocks: Vec<Vec<u8>>, vocab_size: u32) -> Vec<((u32, u32), u32)> 
     }
 
     
-    // Extract unique blocks and index their counts
+    // Extract unique blocks and their counts
     let block_counter: Counter<Vec<u8>> = all_blocks.into_iter().collect();
     let mut blocks: Vec<Block> = Vec::new();
     for (_idx, (block, count)) in block_counter.into_iter().enumerate() {

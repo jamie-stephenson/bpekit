@@ -31,10 +31,10 @@ pub fn all_reduce_changes(
     // this is just my first hacky mpi attempt and
     // 64 seemed like the best bitwidth to use to combine
     // stuff into.
-    for &((x, y), count) in &local_changes {
+    for &((x, y), change) in &local_changes {
         let key = combine_u32(x, y);
         flat_local_data.push(key);
-        flat_local_data.push(count as u64);
+        flat_local_data.push(change as u64);
     }
 
 
@@ -62,26 +62,26 @@ pub fn all_reduce_changes(
     }
 
     // Combine changes with the same key
-    let mut map: HashMap<u64, u64> = HashMap::new();
+    let mut map: HashMap<u64, i32> = HashMap::new();
     // Vector to store the order of insertion
     let mut order: Vec<u64> = Vec::new();
 
     for chunk in buf.chunks_exact(2) {
         let key = chunk[0];
-        let count = chunk[1];
+        let change = chunk[1] as i32;
 
         if let Some(entry) = map.get_mut(&key) {
             // If the key exists, add the count
-            *entry += count;
+            *entry += change;
         } else {
             // If the key doesn't exist, insert it and remember the insertion order
-            map.insert(key, count);
+            map.insert(key, change);
             order.push(key);
         }
     }
 
     order.into_iter()
-        .map(|key| (split_u64(key), map[&key] as i32))
+        .map(|key| (split_u64(key), map[&key]))
         .collect()
 }
 
