@@ -39,15 +39,7 @@ class Tokenizer:
         """
         print(f"Rank {rank} ready to train.")
 
-        compiled_pattern = re.compile(pattern)
-
-        blocks_utf8 = (
-            block
-            for doc in dataset['text']
-            for block in re.findall(compiled_pattern,doc)
-        )
-
-        merges = train(blocks_utf8,vocab_size) 
+        merges = train(dataset['text'],vocab_size,pattern) 
 
         tokenizer  = cls(merges, rank, world_size)
 
