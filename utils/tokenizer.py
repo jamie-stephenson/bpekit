@@ -42,13 +42,13 @@ class Tokenizer:
 
         print(f"Rank {self.rank} ready to train.")
 
-        blocks_utf8 = [
+        blocks_str = [
             block 
             for doc in self.corpus['text']
             for block in self.regex_split(doc)
         ]
         tokenizer = ByteLevelBPETokenizer()
-        tokenizer.train_from_iterator(blocks_utf8,vocab_size=vocab_size)
+        tokenizer.train_from_iterator(blocks_str,vocab_size=vocab_size)
         
     #----------------------ENCODING-METHODS------------------------
 
