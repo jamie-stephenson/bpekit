@@ -1,5 +1,6 @@
 mod datastructures;
 mod iterators;
+mod comms;
 
 use datastructures::{PairCounter,Block};
 use iterators::PyBufferedIterator;

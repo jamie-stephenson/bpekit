@@ -1,6 +1,5 @@
 pub mod train;
 pub mod encode;
-mod comms;
 
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;

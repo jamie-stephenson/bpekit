@@ -1,6 +1,7 @@
 // Structures for maintaining pair counts during training
 
-use crate::comms::all_reduce_changes;
+use super::comms::all_reduce_changes;
+
 use std::collections::{HashMap,HashSet,BinaryHeap};
 use std::cmp::Ordering;
 
