@@ -9,7 +9,7 @@ path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.18", features = ["extension-module", "abi3-py311"] }
+pyo3 = { version = "0.18", features = ["extension-module", "abi3-py310"] }
 mpi = "0.8"
 counter = "0.6"
 rayon = "1.10.0"

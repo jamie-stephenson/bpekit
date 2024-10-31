@@ -1,4 +1,3 @@
-from .indexedlist import IndexedList
 from rustbpe import train, encode
 
 from datasets import Dataset
