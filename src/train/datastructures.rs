@@ -135,11 +135,11 @@ pub(crate) struct Block {
 }
 
 impl Block {
-    pub fn new(utf8_codepoints: Vec<u8>, count: i32) -> Block {
+    pub fn new(s: &str, count: i32) -> Block {
         Block{ 
-            tokens: utf8_codepoints
+            tokens: s.as_bytes()
                 .into_iter()
-                .map(|byte| byte as u32)
+                .map(|byte| *byte as u32)
                 .collect(),
             count: count
         }

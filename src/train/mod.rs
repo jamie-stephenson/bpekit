@@ -1,19 +1,23 @@
 mod datastructures;
+mod iterators;
 
 use datastructures::{PairCounter,Block};
+use iterators::PyBufferedIterator;
 
 use std::collections::HashMap;
 use std::time::Instant;
 
+use regex::Regex;
 use rayon::prelude::*;
-use counter::Counter;
 use mpi::initialize;
 use mpi::topology::Communicator;
 use pyo3::prelude::*;
-
+use pyo3::types::PyString;
+use pyo3::exceptions::PyValueError;
+use itertools::Either;
 
 #[pyfunction]
-pub fn train(all_blocks: Vec<Vec<u8>>, vocab_size: u32) -> HashMap<(u32, u32), u32> {
+pub fn train(generator: &Bound<'_, PyAny>, vocab_size: u32, pattern: &str) -> PyResult<HashMap<(u32, u32), u32>> {
 
     // Init comms
     let universe = initialize().unwrap();
@@ -28,13 +32,53 @@ pub fn train(all_blocks: Vec<Vec<u8>>, vocab_size: u32) -> HashMap<(u32, u32), u
         println!("Running BPE training algorithm...");
     }
 
-    
-    // Extract unique blocks and their counts
-    let block_counter: Counter<Vec<u8>> = all_blocks.into_iter().collect();
-    let mut blocks: Vec<Block> = Vec::new();
-    for (_idx, (block, count)) in block_counter.into_iter().enumerate() {
-        blocks.push(Block::new(block,count as i32));
-    }
+    // Covert Python generator into special iterator that handles Python GIL.
+    // This allows us to access the generator from multiple threads without
+    // upsetting the GIL. 
+    let buffered_iter = match PyBufferedIterator::new(
+        generator,
+        |element| {
+            match element.downcast::<PyString>() {
+                Ok(s) => Either::Right(std::iter::once(s.to_str())),
+                Err(_) => Either::Left(std::iter::once(Ok("_")))
+            }
+        },
+        256,
+    )
+    {
+        Ok(iter) => iter,
+        Err(e) => panic!["Failed to convert python generator to rust `PyBufferedIterator`: {:?}",e]
+    };
+
+    // Split each doc into blocks using regex and then count duplicates of each block.
+    let re = Regex::new(pattern).map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let block_counts = buffered_iter
+        .par_bridge()
+        .map(|doc| {
+            let strs: Vec<&str> = re.find_iter(doc.unwrap()).map(|mat| mat.as_str()).collect();
+            let mut map: HashMap<&str, i32> = HashMap::new();
+            for s in strs {
+                map.entry(s).and_modify(|c| *c += 1).or_insert(1);
+            }
+            map
+        })
+        .reduce(
+            || HashMap::new(),
+            |mut a, b| {
+                for (s, count) in b {
+                    a.entry(s).and_modify(|c| *c += count).or_insert(count);
+                }
+                a
+            },
+        );
+
+
+    // Convert block_counts to blocks
+    let mut blocks: Vec<Block> = block_counts
+        .into_par_iter()
+        .map(|(s, count)| Block::new(s, count))
+        .collect();
 
     // Init pair counter
     let mut bp_counts = PairCounter::new(&blocks,&world);    
@@ -103,5 +147,5 @@ pub fn train(all_blocks: Vec<Vec<u8>>, vocab_size: u32) -> HashMap<(u32, u32), u
         println!("BPE training algorithm complete in {:.2} seconds", duration.as_secs());
     }
     
-    merges
+    Ok(merges)
 }
