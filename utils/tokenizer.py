@@ -41,8 +41,11 @@ class Tokenizer:
 
         compiled_pattern = re.compile(pattern)
 
-        blocks_str = re.findall(compiled_pattern, '\n'.join(dataset['text']))
-        blocks_utf8 = [block_str.encode('utf-8') for block_str in blocks_str]
+        blocks_utf8 = [
+            block.encode('utf-8') 
+            for doc in dataset['text']
+            for block in re.findall(compiled_pattern,doc)
+        ]
 
         merges = train(blocks_utf8,vocab_size) 
 
