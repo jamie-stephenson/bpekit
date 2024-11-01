@@ -8,7 +8,7 @@ use iterators::PyBufferedIterator;
 use std::collections::HashMap;
 use std::time::Instant;
 
-use regex::Regex;
+use fancy_regex::Regex;
 use rayon::prelude::*;
 use mpi::initialize;
 use mpi::topology::Communicator;
@@ -18,7 +18,7 @@ use pyo3::exceptions::PyValueError;
 use itertools::Either;
 
 #[pyfunction]
-pub fn train(generator: &Bound<'_, PyAny>, vocab_size: u32, pattern: &str) -> PyResult<HashMap<(u32, u32), u32>> {
+pub fn train(py: Python, generator: &Bound<'_, PyAny>, vocab_size: u32, pattern: &str) -> PyResult<HashMap<(u32, u32), u32>> {
 
     // Init comms
     let universe = initialize().unwrap();
@@ -40,8 +40,8 @@ pub fn train(generator: &Bound<'_, PyAny>, vocab_size: u32, pattern: &str) -> Py
         generator,
         |element| {
             match element.downcast::<PyString>() {
-                Ok(s) => Either::Right(std::iter::once(s.to_str())),
-                Err(_) => Either::Left(std::iter::once(Ok("_")))
+                Ok(s) => Either::Right(std::iter::once(s.to_str().map(|s| s.to_string()))),
+                Err(_) => Either::Left(std::iter::once(Ok("_".to_string())))
             }
         },
         256,
@@ -54,29 +54,32 @@ pub fn train(generator: &Bound<'_, PyAny>, vocab_size: u32, pattern: &str) -> Py
     // Split each doc into blocks using regex and then count duplicates of each block.
     let re = Regex::new(pattern).map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    let block_counts = buffered_iter
-        .par_bridge()
-        .map(|doc| {
-            let strs: Vec<&str> = re.find_iter(doc.unwrap()).map(|mat| mat.as_str()).collect();
-            let mut map: HashMap<&str, i32> = HashMap::new();
-            for s in strs {
-                map.entry(s).and_modify(|c| *c += 1).or_insert(1);
-            }
-            map
-        })
-        .reduce(
-            || HashMap::new(),
-            |mut a, b| {
-                for (s, count) in b {
-                    a.entry(s).and_modify(|c| *c += count).or_insert(count);
+    let block_counts = py.allow_threads(|| {
+        buffered_iter
+            .par_bridge()
+            .map(|doc| {
+                let strs: Vec<String> = re.find_iter(&doc.unwrap())
+                    .filter_map(|mat| mat.ok().map(|m| m.as_str().to_string()))
+                    .collect();
+                let mut map: HashMap<String, i32> = HashMap::new();
+                for s in strs {
+                    map.entry(s).and_modify(|c| *c += 1).or_insert(1);
                 }
-                a
-            },
-        );
-
+                map
+            })
+            .reduce(
+                || HashMap::new(),
+                |mut a, b| {
+                    for (s, count) in b {
+                        a.entry(s).and_modify(|c| *c += count).or_insert(count);
+                    }
+                    a
+                },
+            )
+    });
 
     // Convert block_counts to blocks
-    let mut blocks: Vec<Block> = block_counts
+    let blocks: Vec<Block> = block_counts
         .into_par_iter()
         .map(|(s, count)| Block::new(s, count))
         .collect();

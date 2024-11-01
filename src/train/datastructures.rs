@@ -136,7 +136,7 @@ pub(crate) struct Block {
 }
 
 impl Block {
-    pub fn new(s: &str, count: i32) -> Block {
+    pub fn new(s: String, count: i32) -> Block {
         Block{ 
             tokens: s.as_bytes()
                 .into_iter()
