@@ -2,6 +2,7 @@ mod datastructures;
 mod comms;
 
 use datastructures::{PairCounter,Block};
+use crate::utils::progress::get_progress_reporter;
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -32,9 +33,18 @@ pub fn train(
         println!("Running BPE training algorithm...");
     }
 
+    // Count the duplicate blocks in the generator
+    let mut block_count_progress = get_progress_reporter(
+        None,
+        rank,
+        10000000,
+        true
+    );
+    
     let block_counts: Counter<String> = generator
         .into_iter()
         .map(|s| {
+            block_count_progress.inc(1);
             // TODO: Error handling instead of unwrapping 
             s.unwrap()
                 .downcast::<PyString>().unwrap()
@@ -63,6 +73,13 @@ pub fn train(
     let mut current_vocab_size: u32 = 256;
     let mut merges: HashMap<(u32, u32), u32> = HashMap::new(); 
 
+    let mut progress = get_progress_reporter(
+        Some((vocab_size-current_vocab_size) as u64),
+        rank,
+        1000,
+        true
+    );
+
     while current_vocab_size < vocab_size {
 
         let pair = match bp_counts.pop() { 
@@ -77,12 +94,8 @@ pub fn train(
         
         let (left,right) = pair.vals;
 
-        if rank == 0 {
-            println!("New bytepair merge {:?} -> {:?} with count {:?}.", pair.vals, current_vocab_size, pair.count);
-        }
-
         merges.insert(pair.vals, current_vocab_size);
-
+        
         let changes: Vec<((u32, u32), (i32, Vec<usize>))> = pair.block_ids
             .par_iter()
             .map(|&block_idx| {
@@ -96,26 +109,27 @@ pub fn train(
                 |mut changes1, changes2| {
                     for (pair, (change2, block_ids)) in changes2 {
                         changes1
-                            .entry(pair)
-                            .and_modify(|(change1,ids)| {
-                                *change1 += change2;
-                                ids.append(&mut block_ids.clone());
-                            })                             
+                        .entry(pair)
+                        .and_modify(|(change1,ids)| {
+                            *change1 += change2;
+                            ids.append(&mut block_ids.clone());
+                        })                             
                             .or_insert((change2,block_ids));
                     }
                     changes1
                 },
             ).into_iter().collect();
 
-        bp_counts.commit(changes);
+            // Commit changes and sync across ranks
+            bp_counts.commit(changes);
+            
+            current_vocab_size += 1;
 
-        current_vocab_size += 1;
+            progress.inc(1);
+            //println!("New bytepair merge {:?} -> {:?} with count {:?}.", pair.vals, current_vocab_size, pair.count);
     }
 
-    if rank == 0 {
-        let duration = start.elapsed();
-        println!("BPE training algorithm complete in {:.2} seconds", duration.as_secs());
-    }
+    progress.finish();
     
     Ok(merges)
 }

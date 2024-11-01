@@ -100,7 +100,8 @@ impl<'a> PairCounter<'a> {
     // Commit pending changes
     pub fn commit(&mut self, changes: Vec<((u32,u32),(i32,Vec<usize>))>) {
 
-        let (local_changes, local_new_block_ids): (Vec<((u32,u32),i32)>, HashMap<(u32,u32),Vec<usize>>) = changes.into_iter()
+        let (local_changes, local_new_block_ids): (Vec<((u32,u32),i32)>, HashMap<(u32,u32),Vec<usize>>) = changes
+            .into_iter()
             .map(|(pair, (change, block_ids))| ((pair, change), (pair, block_ids)))
             .unzip();
 
