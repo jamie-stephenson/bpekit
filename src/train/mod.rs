@@ -1,9 +1,7 @@
 mod datastructures;
-mod iterators;
 mod comms;
 
 use datastructures::{PairCounter,Block};
-use iterators::PyBufferedIterator;
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -13,13 +11,11 @@ use rayon::prelude::*;
 use mpi::initialize;
 use mpi::topology::Communicator;
 use pyo3::prelude::*;
-use pyo3::types::PyString;
-use itertools::Either;
+use pyo3::types::{PyIterator, PyString};
 
 #[pyfunction]
 pub fn train(
-    py: Python, 
-    generator: &Bound<'_, PyAny>, 
+    generator: &Bound<'_, PyIterator>, 
     vocab_size: u32, 
 ) -> PyResult<HashMap<(u32, u32), u32>> {
 
@@ -36,25 +32,16 @@ pub fn train(
         println!("Running BPE training algorithm...");
     }
 
-    // Covert Python generator into special iterator that handles Python GIL.
-    // This allows us to access the generator from multiple threads without
-    // upsetting the GIL. 
-    let buffered_iter = match PyBufferedIterator::new(
-        generator,
-        |element| {
-            match element.downcast::<PyString>() {
-                Ok(s) => Either::Right(std::iter::once(s.to_str().map(|s| s.to_string()))),
-                Err(_) => Either::Left(std::iter::once(Ok("_".to_string())))
-            }
-        },
-        256,
-    )
-    {
-        Ok(iter) => iter,
-        Err(e) => panic!["Failed to convert python generator to rust `PyBufferedIterator`: {:?}",e]
-    };
-
-    let block_counts: Counter<String> = buffered_iter.map(|s| s.unwrap()).collect();
+    let block_counts: Counter<String> = generator
+        .into_iter()
+        .map(|s| {
+            // TODO: Error handling instead of unwrapping 
+            s.unwrap()
+                .downcast::<PyString>().unwrap()
+                .to_str().unwrap()
+                .to_string()
+        })
+        .collect();
 
     // Convert block_counts to blocks
     let blocks: Vec<Block> = block_counts
