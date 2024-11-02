@@ -2,7 +2,7 @@ mod datastructures;
 mod comms;
 
 use datastructures::{PairCounter,Block};
-use crate::utils::progress::get_progress_reporter;
+use crate::utils::get_progress_reporter;
 
 use std::collections::HashMap;
 
