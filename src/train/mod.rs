@@ -5,7 +5,6 @@ use datastructures::{PairCounter,Block};
 use crate::utils::progress::get_progress_reporter;
 
 use std::collections::HashMap;
-use std::time::Instant;
 
 use counter::Counter;
 use rayon::prelude::*;
@@ -26,19 +25,17 @@ pub fn train(
 
     let rank = world.rank();
     
-    // Log times
-    let start = Instant::now();
-
     if rank == 0 {
         println!("Running BPE training algorithm...");
     }
 
     // Count the duplicate blocks in the generator
     let mut block_count_progress = get_progress_reporter(
-        None,
+        None,      // length
         rank,
-        10000000,
-        true
+        "counting blocks",
+        10000000,  // interval
+        true       // verbose 
     );
     
     let block_counts: Counter<String> = generator
@@ -46,38 +43,48 @@ pub fn train(
         .map(|s| {
             block_count_progress.inc(1);
             // TODO: Error handling instead of unwrapping 
-            s.unwrap()
-                .downcast::<PyString>().unwrap()
-                .to_str().unwrap()
-                .to_string()
+            s
+            .unwrap()
+            .downcast::<PyString>().unwrap()
+            .to_str().unwrap()
+            .to_string()
         })
         .collect();
 
+    block_count_progress.finish_with_message("blocks counted");
+
     // Convert block_counts to blocks
+    let mut block_tokenize_progress = get_progress_reporter(
+        Some(block_counts.len()), // length
+        rank,
+        "tokenizing blocks",
+        10000000,  // interval
+        true       // verbose 
+    );
+    
     let blocks: Vec<Block> = block_counts
         .into_iter()
-        .par_bridge()
-        .map(|(s, count)| Block::new(s, count as i32))
+        .map(|(s, count)| {
+            block_tokenize_progress.inc(1);
+            Block::new(s, count as i32)
+        })
         .collect();
+
+    block_tokenize_progress.finish_with_message("blocks tokenized");
 
     // Init pair counter
     let mut bp_counts = PairCounter::new(&blocks,&world);    
-
-    // Log times
-    if rank == 0 {
-        let init_duration = start.elapsed();
-        println!("Initialising datastuctures took {:.2} seconds", init_duration.as_secs());
-    }
 
     // Begin training
     let mut current_vocab_size: u32 = 256;
     let mut merges: HashMap<(u32, u32), u32> = HashMap::new(); 
 
     let mut progress = get_progress_reporter(
-        Some((vocab_size-current_vocab_size) as u64),
+        Some((vocab_size-current_vocab_size) as usize), //length
         rank,
-        1000,
-        true
+        "merging pairs",
+        1000, // interval
+        true  // verbose
     );
 
     while current_vocab_size < vocab_size {
@@ -109,11 +116,11 @@ pub fn train(
                 |mut changes1, changes2| {
                     for (pair, (change2, block_ids)) in changes2 {
                         changes1
-                        .entry(pair)
-                        .and_modify(|(change1,ids)| {
-                            *change1 += change2;
-                            ids.append(&mut block_ids.clone());
-                        })                             
+                            .entry(pair)
+                            .and_modify(|(change1,ids)| {
+                                *change1 += change2;
+                                ids.append(&mut block_ids.clone());
+                            })                             
                             .or_insert((change2,block_ids));
                     }
                     changes1
@@ -129,7 +136,7 @@ pub fn train(
             //println!("New bytepair merge {:?} -> {:?} with count {:?}.", pair.vals, current_vocab_size, pair.count);
     }
 
-    progress.finish();
+    progress.finish_with_message("pairs merged");
     
     Ok(merges)
 }

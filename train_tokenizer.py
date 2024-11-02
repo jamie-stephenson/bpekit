@@ -14,7 +14,8 @@ def train_tokenizer(
         ndocs: int | None = None
     ) -> Tokenizer:
 
-    rank, world_size = int(os.getenv('OMPI_COMM_WORLD_RANK',0)), int(os.getenv('OMPI_COMM_WORLD_SIZE',1))
+    rank = int(os.getenv('OMPI_COMM_WORLD_RANK',0))
+    world_size = int(os.getenv('OMPI_COMM_WORLD_SIZE',1))
     
     merges_path = merges_path / Path(f"{vocab_size}.pkl")
 

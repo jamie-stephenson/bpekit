@@ -1,11 +1,12 @@
 // Structures for maintaining pair counts during training
 
 use super::comms::all_reduce_changes;
+use crate::utils::progress::get_progress_reporter;
 
 use std::collections::{HashMap,HashSet,BinaryHeap};
 use std::cmp::Ordering;
 
-use mpi::topology::SimpleCommunicator;
+use mpi::topology::{SimpleCommunicator,Communicator};
 
 #[derive(Debug, Eq)]
 pub(crate) struct Pair {
@@ -49,6 +50,14 @@ impl<'a> PairCounter<'a> {
         };
 
         let mut counts_map: HashMap<(u32,u32),(i32,HashSet<usize>)> = HashMap::new();
+        
+        let mut progress = get_progress_reporter(
+            Some(blocks.len()),
+            world.rank(),
+            "counting pairs", 
+            1000000, 
+            true
+        );
 
         // Process each block to extract pairs and add them to the heap
         for (block_idx,block) in blocks.into_iter().enumerate() {
@@ -70,7 +79,9 @@ impl<'a> PairCounter<'a> {
                         });
                 }
             }
+            progress.inc(1);
         }
+        progress.finish_with_message("pairs counted");
 
         // Convert to Vec
         let counts_vec: Vec<((u32, u32), (i32, Vec<usize>))> = counts_map
