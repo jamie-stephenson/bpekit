@@ -23,7 +23,7 @@ def train_tokenizer(
         merges_path (Path): Path to save merges to.
         tokens_path (Optional[Path]): Path to save encoded tokenizer corpus shards to.
         shard_size (int): Number of tokens per shard.
-        ndocs (Optional[int]): Number of dataset entries to encode.
+        ndocs (Optional[int]): Number of dataset entries to train with.
 
     Returns:
         Tokenizer: The trained tokenizer.
@@ -41,7 +41,7 @@ def train_tokenizer(
     
     dataset = get_dataset(path,rank,world_size,ndocs)
 
-    tokenizer = Tokenizer.from_dataset(dataset,vocab_size,rank)
+    tokenizer = Tokenizer.from_dataset(dataset,vocab_size,rank,world_size)
     tokenizer.save_merges(merges_path)
 
     if tokens_path:
