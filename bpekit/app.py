@@ -79,16 +79,13 @@ def encode(
         help="Path to the dataset."
     ),
 
-    merges_path: Path = typer.Option(
+    merges_path: Path = typer.Argument(
         ...,
-        "--merges-path",
-        "--merges_path",
-        "-m",
         help="Path to tokenizer merges."
     ),
 
-    tokens_path: Path | None = typer.Option(
-        None,
+    tokens_path: Path = typer.Option(
+        Path("tokens/"),
         "--tokens-path",
         "--tokens_path",
         "-t",

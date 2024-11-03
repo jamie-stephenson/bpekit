@@ -28,7 +28,7 @@ def encode_dataset(
         )
     
     dataset = get_dataset(path,rank,world_size,ndocs)
-    tokenizer = Tokenizer.from_pickled_merges(merges_path,rank,world_size)
+    tokenizer = Tokenizer.from_pickled_merges(merges_path,rank)
     tokenizer.save_encoded_corpus(dataset,tokens_path,shard_size)
 
 if __name__ == '__main__':

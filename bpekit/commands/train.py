@@ -41,7 +41,7 @@ def train_tokenizer(
     
     dataset = get_dataset(path,rank,world_size,ndocs)
 
-    tokenizer = Tokenizer.from_dataset(dataset,vocab_size,rank,world_size)
+    tokenizer = Tokenizer.from_dataset(dataset,vocab_size,rank)
     tokenizer.save_merges(merges_path)
 
     if tokens_path:
