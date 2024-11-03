@@ -1,10 +1,10 @@
 from bpekit.rust import train, encode
+from bpekit.utils import save_tokens
 
 from datasets import Dataset
-import numpy as np
-from tqdm.auto import tqdm
 
 import multiprocessing as mp
+from pathlib import Path
 import os
 import re
 import pickle
@@ -15,14 +15,18 @@ class Tokenizer:
     """
     Class for training and using tokenizers that is (almost) distribution agnositic.
     """
-    def __init__(self, merges, rank, world_size) -> None:
+    def __init__(
+        self, 
+        merges: List[Tuple[Tuple[int,int],int]], 
+        rank: int, 
+    ) -> None:
+
         self.rank = rank
-        self.world_size = world_size
         self.merges = merges
 
     @classmethod
-    def from_pickled_merges(cls, path, rank=0, world_size=1):
-        return cls(cls.load_merges(path), rank, world_size)
+    def from_pickled_merges(cls, path, rank=0):
+        return cls(cls.load_merges(path), rank)
 
     @classmethod
     def from_dataset(
@@ -50,7 +54,7 @@ class Tokenizer:
 
         merges = train(blocks_str,vocab_size) 
 
-        tokenizer  = cls(merges, rank, world_size)
+        tokenizer  = cls(merges, rank)
 
         return tokenizer
 
@@ -60,7 +64,12 @@ class Tokenizer:
     def encode(self, text: str) -> List[int]:
         return encode(text.encode('utf-8'), self.merges)
 
-    def save_encoded_corpus(self, dataset, path, shard_size):
+    def save_encoded_corpus(
+        self,
+        dataset: Dataset,
+        path: Path,
+        shard_size: int
+    ):
         """
         Encode and save a corpus (that differs from the tokenizer corpus) 
         to shards.
@@ -71,17 +80,21 @@ class Tokenizer:
 
         with mp.Pool(os.cpu_count()) as pool:
             tokens_iter = pool.imap(self.encode, dataset['text'], chunksize=16)
-            self._save_tokens(tokens_iter,path,shard_size) 
+            save_tokens(tokens_iter,path,shard_size,self.rank) 
 
         if self.rank==0:
             print(f"Encoding and saving took {time()-t0:.2f} seconds.")
 
-    def save_encoded_tokenizer_corpus(self, path, shard_size):
+    def save_encoded_tokenizer_corpus(
+        self,
+        path: Path,
+        shard_size: int
+    ):
         """
         Save encoded tokenizer corpus as shards.
-        Must be called after `__train`.
+        Must be called after `from_dataset`.
         """
-        self._save_tokens(self.blocks,path,shard_size)
+        save_tokens(self.blocks,path,shard_size,self.rank)
     
     #------------------END-OF-ENCODING-METHODS--------------------
 
@@ -111,70 +124,20 @@ class Tokenizer:
 
     #-------------------SAVING/LOADING-METHODS--------------------
 
-    def _save_tokens(self, tokens_iter, path, shard_size):
-        """
-        Save tokens from an iterable to shards. 
-        `tokens_iter` must be an iterable that yields lists (or numpy arrays) of tokens
-        """
-
-        os.makedirs(path, exist_ok=True)
-        
-        dtype = np.uint16
-        split = "train"
-        shard_index = 0
-        # Preallocate buffer to hold current shard
-        all_tokens_np = np.empty((shard_size,), dtype=dtype)
-        token_count = 0
-        if self.rank == 0:
-            progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
-
-        for tokens in tokens_iter:
-            while token_count + len(tokens) >= shard_size:
-                # Write the current shard and start a new one
-                filename = os.path.join(path, f"{self.rank}_{split}_{shard_index:06d}")
-                
-                # Split the document into whatever fits in this shard; the remainder goes to next one
-                remainder = shard_size - token_count
-                all_tokens_np[token_count:token_count + remainder] = tokens[:remainder]
-
-                if self.rank == 0:
-                    progress_bar.update(remainder)
-                
-                np.save(filename, all_tokens_np)
-                shard_index += 1
-
-                token_count = 0
-                tokens = tokens[remainder:]
-
-                if self.rank == 0:
-                    progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
-
-            # simply append tokens to current shard
-            all_tokens_np[token_count:token_count+len(tokens)] = tokens
-            token_count += len(tokens)
-            
-            if self.rank == 0:
-                progress_bar.update(len(tokens))
-
-        if token_count != 0:
-            split = "train" if shard_index == 0 else "val"
-            filename = os.path.join(path, f"{self.rank}_{split}_{shard_index:06d}")
-            np.save(filename, all_tokens_np[:token_count])
-
-    def save_merges(self, path):
+    def save_merges(self, path: Path):
         if self.rank == 0:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, 'wb') as file:
                 pickle.dump(self.merges, file)
 
     @staticmethod
-    def load_merges(path):
+    def load_merges(path: Path):
         with open(path, 'rb') as file:
             merges = pickle.load(file)
         return merges
 
     @staticmethod
-    def load_corpus(path):
+    def load_corpus(path: Path):
         with open(path, 'r') as file:
             file_contents = file.read()
         return file_contents
