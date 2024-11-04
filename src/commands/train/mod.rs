@@ -1,12 +1,17 @@
 mod datastructures;
 mod comms;
+mod iter;
 
 use datastructures::{PairCounter,Block};
+use iter::PyBufferedIterator;
 use crate::utils::get_progress_reporter;
+use crate::utils::progress::ProgressReporter;
 
 use std::collections::HashMap;
 
-use counter::Counter;
+use indicatif::{ProgressIterator,ProgressBar};
+use dashmap::DashMap;
+use itertools::Either;
 use rayon::prelude::*;
 use mpi::initialize;
 use mpi::topology::Communicator;
@@ -15,6 +20,7 @@ use pyo3::types::{PyIterator, PyString};
 
 #[pyfunction]
 pub fn train(
+    py: Python,
     generator: &Bound<'_, PyIterator>, 
     vocab_size: u32, 
 ) -> PyResult<HashMap<(u32, u32), u32>> {
@@ -30,34 +36,57 @@ pub fn train(
     }
 
     // Count the duplicate blocks in the generator
-    let mut block_count_progress = get_progress_reporter(
+    let block_count_progress = get_progress_reporter(
         None,      // length
         rank,
-        "counting blocks",
+        "🧱 counting blocks",
+        Some("🧱 blocks counted"),
         10000000,  // interval
         true       // verbose 
     );
-    
-    let block_counts: Counter<String> = generator
-        .into_iter()
-        .map(|s| {
-            block_count_progress.inc(1);
-            // TODO: Error handling instead of unwrapping 
-            s
-            .unwrap()
-            .downcast::<PyString>().unwrap()
-            .to_str().unwrap()
-            .to_string()
-        })
-        .collect();
 
-    block_count_progress.finish_with_message("blocks counted");
+    let spinner = match block_count_progress {
+        ProgressReporter::Spinner(ps) => ps,
+        _ => ProgressBar::new_spinner() 
+    }; 
+
+    // Covert Python generator into special iterator that handles Python GIL.
+    // This allows us to access the generator from multiple threads without
+    // upsetting the GIL. 
+    let buffered_iter = match PyBufferedIterator::new(
+        generator,
+        |element| {
+            match element.downcast::<PyString>() {
+                Ok(s) => Either::Right(std::iter::once(s.to_str().map(|s| s.to_string()))),
+                Err(_) => Either::Left(std::iter::once(Ok("_".to_string())))
+            }
+        },
+        8132,
+    )
+    {
+        Ok(iter) => iter,
+        Err(e) => panic!["Failed to convert python generator to rust `PyBufferedIterator`: {:?}",e]
+    };
+
+    let block_counts: DashMap<String, i32> = DashMap::new();
+    
+    py.allow_threads(||{
+        buffered_iter
+            .into_iter()
+            .progress_with(spinner)
+            .par_bridge()
+            .for_each(|s| {
+                // TODO: Error handling instead of unwrapping 
+                block_counts.entry(s.unwrap()).and_modify(|count| { *count += 1 }).or_insert(1);
+            });
+    });
 
     // Convert block_counts to blocks
     let mut block_tokenize_progress = get_progress_reporter(
         Some(block_counts.len()), // length
         rank,
-        "tokenizing blocks",
+        "🔢 tokenizing blocks",
+        None,
         10000000,  // interval
         true       // verbose 
     );
@@ -70,7 +99,7 @@ pub fn train(
         })
         .collect();
 
-    block_tokenize_progress.finish_with_message("blocks tokenized");
+    block_tokenize_progress.finish_with_message("🔢 blocks tokenized");
 
     // Init pair counter
     let mut bp_counts = PairCounter::new(&blocks,&world);    
@@ -78,11 +107,12 @@ pub fn train(
     // Begin training
     let mut current_vocab_size: u32 = 256;
     let mut merges: HashMap<(u32, u32), u32> = HashMap::new(); 
-
+    
     let mut progress = get_progress_reporter(
         Some((vocab_size-current_vocab_size) as usize), //length
         rank,
-        "merging pairs",
+        "🤝 merging pairs",
+        None,
         1000, // interval
         true  // verbose
     );
@@ -136,7 +166,7 @@ pub fn train(
             //println!("New bytepair merge {:?} -> {:?} with count {:?}.", pair.vals, current_vocab_size, pair.count);
     }
 
-    progress.finish_with_message("pairs merged");
+    progress.finish_with_message("🤝 pairs merged");
     
     Ok(merges)
 }

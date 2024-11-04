@@ -54,7 +54,8 @@ impl<'a> PairCounter<'a> {
         let mut progress = get_progress_reporter(
             Some(blocks.len()),
             world.rank(),
-            "counting pairs", 
+            "🧮 counting pairs", 
+            None,
             1000000, 
             true
         );
@@ -81,13 +82,14 @@ impl<'a> PairCounter<'a> {
             }
             progress.inc(1);
         }
-        progress.finish_with_message("pairs counted");
-
+        
         // Convert to Vec
         let counts_vec: Vec<((u32, u32), (i32, Vec<usize>))> = counts_map
-            .into_iter()
-            .map(|(pair, (count, block_ids))| (pair, (count, block_ids.into_iter().collect())))
-            .collect();
+        .into_iter()
+        .map(|(pair, (count, block_ids))| (pair, (count, block_ids.into_iter().collect())))
+        .collect();
+    
+        progress.finish_with_message("🧮 pairs counted");
 
         // Commit pending changes
         pc.commit(counts_vec);
