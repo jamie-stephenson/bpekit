@@ -1,216 +1,168 @@
 use atty::Stream;
 use indicatif::{ProgressBar,ProgressDrawTarget,ProgressStyle,ProgressFinish};
-use pyo3::exceptions::PyFileNotFoundError;
 
-use std::io::{self, Write};
 use std::env;
-use std::time::Instant;
+use std::io::{self, Write};
+use std::iter::Iterator;
 
-pub(crate) enum ProgressReporter {
-    Bar(ProgressBar),
-    Spinner(ProgressBar),
-    Printer(ProgressPrinter),
-    None,
+
+/// Progress that either shows a full progress bar/spinner or prints simple messages.
+/// It is designed to work somewhat gracefully with both tty stdout and non-tty stdout.
+pub(crate) struct Progress {
+    pub bar: ProgressBar,
+    to_tty: bool,
+    finish_message: Option<String>
 }
 
-impl ProgressReporter {
-    pub fn inc(&mut self, delta: u64) {
-        match self {
-            Self::Bar(pb) => pb.inc(delta),
-            Self::Spinner(ps) => ps.inc(delta),
-            Self::Printer(pp) => pp.inc(delta),
-            Self::None => {},
-        }
-    }
+impl Progress {
 
-    pub fn finish(&self) {
-        match self {
-            Self::Bar(pb) => pb.finish(),
-            Self::Spinner(ps) => ps.finish(),
-            Self::Printer(pp) => pp.finish(),
-            Self::None => {},
-        }
-    }
-    
-    pub fn finish_with_message(&self, message: &str) {
-        let msg = String::from(message);
-        match self {
-            Self::Bar(pb) => pb.finish_with_message(msg),
-            Self::Spinner(ps) => ps.finish_with_message(msg),
-            Self::Printer(pp) => pp.finish_with_message(message),
-            Self::None => {},
-        }
-    }
-}
-
-// For printing progess to files
-pub(crate) struct ProgressPrinter {
-    length: Option<usize>,
-    current: u64,
-    finish_msg: Option<String>,
-    interval: u64,
-    last_print: u64,
-    verbose: bool,
-    start: Instant
-}
-
-impl ProgressPrinter {
-    
-    fn new(
-        length: Option<usize>,
-        msg: String, 
-        finish_msg: Option<String>, 
-        interval: u64, 
-        verbose: bool
+    /// - If stdout is a TTY, it creates a standard progress bar.
+    /// - If stdout is redirected, it just prints start and finish messages.
+    pub(crate) fn new(
+        len: Option<usize>,
+        rank: i32,
+        message: &str,
+        finish_message: Option<&str>
     ) -> Self {
+
+        if rank != 0 {
+            // This progress bar will not interfere at all
+            return Progress{
+                bar: ProgressBar::hidden(),
+                to_tty: true,
+                finish_message: Some("".to_string())
+            }
+        }
+
+        // Determine if stdout is a terminal
+        let to_tty = match env::var("OMPI_COMM_WORLD_SIZE") {
+            // Hacky way to ensure that when ran with `mpirun` we 
+            // automatically assume we are sending stdout to a file
+            Ok(_) => false, 
+            Err(_) => atty::is(Stream::Stdout)
+        };    
+
+        let msg = String::from(message);
+        let finish_msg = finish_message.map(|s| s.to_string());
         
-        println!("{}",msg);
+        let finish = match finish_msg.clone() {
+            Some(s) => ProgressFinish::WithMessage(s.into()),
+            None => ProgressFinish::AndLeave
+        };    
 
-        ProgressPrinter{
-            length,
-            current: 0,
-            finish_msg,
-            interval,
-            last_print: 0,
-            verbose,
-            start: Instant::now()
-        }
-    }
-
-
-    fn inc(&mut self, delta: u64) {
-
-        self.current += delta;
-
-        if !self.verbose || self.current - self.last_print < self.interval {
-            return;
-        }
-
-        self.last_print = self.current;
-
-        let elapsed = self.start.elapsed().as_secs();
-
-        match self.length {
-            Some(length) => {
-                let progress_percentage = (self.current * 100) / length as u64;
-                println!(
-                    "Progress: {}%, {} seconds elapsed",
-                    progress_percentage,
-                    elapsed
+        let pb = match (len, to_tty) {
+            (Some(l), true) => {
+                let bar = ProgressBar::new(l as u64);
+                bar.set_draw_target(ProgressDrawTarget::stdout_with_hz(3));
+                bar.set_style(
+                    ProgressStyle::with_template(
+                        "{msg:20} [{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({eta})",
+                    )
+                    .unwrap()
                 );
+                bar
             }
-            None => {
-                println!(
-                    "Progress: {} iterations completed, {} seconds elapsed",
-                    self.current,
-                    elapsed
+            (None, true) => {
+                let spinner = ProgressBar::new_spinner();
+                spinner.set_draw_target(ProgressDrawTarget::stdout_with_hz(3));
+                spinner.set_style(
+                    ProgressStyle::with_template(
+                        "{msg:20} [{elapsed_precise}] {spinner} {pos:>7}",
+                    )
+                    .unwrap()
+                    .tick_chars("🌖🌗🌘🌑🌒🌓🌔🌕"),
                 );
+                spinner
             }
-        }
-
-        // Ensure output is flushed immediately
-        io::stdout().flush().unwrap();
-    }
-
-    fn finish(&self) {
-        let msg = match &self.finish_msg {
-            Some(s) => s,
-            None => &"Progress 100% complete".to_string()
+            (_, false) => {
+                println!("{}",msg);
+                ProgressBar::hidden()
+            }
         };
-        println!(
-            "{}, {} iterations completed in {} seconds",
-            msg,
-            self.current,
-            self.start.elapsed().as_secs()
-        );
-    }
 
-    fn finish_with_message(&self, msg: &str) {
-        println!(
-            "{}, {} iterations completed in {} seconds",
-            msg,
-            self.current,
-            self.start.elapsed().as_secs()
-        );
-    }
-}
+        pb.set_message(msg);
 
-/// Gets `ProgressReporter` that suits scenario, based on `rank` 
-/// and whether or not we are writing to a terminal. 
-/// 
-/// Only use `finish_message` when you are using a progress bar or
-/// spinner that will not explicitly call any finish method
-/// (e.g. when using the `with_progress` method to get a progress bar
-/// on an iterator). Otherwise use the `finish_with_message` method.
-/// 
-/// `interval` and `verbose` are only relevant in the latter scenario 
-/// (e.g. when writing output to a log file).
-/// 
-pub fn get_progress_reporter(
-    length: Option<usize>, 
-    rank: i32, 
-    message: &str,
-    finish_message: Option<&str>,
-    interval: u64, 
-    verbose: bool
-) -> ProgressReporter {
-
-    if rank != 0 {
-        return ProgressReporter::None
-    }
-
-    // Determine if stdout is a terminal
-    let is_tty = match env::var("OMPI_COMM_WORLD_SIZE") {
-        // Hacky way to ensure that when ran with `mpirun` we 
-        // automatically assume we are sending stdout to a file
-        Ok(_) => false, 
-        Err(_) => atty::is(Stream::Stdout)
-    };
-
-    let msg = String::from(message);
-    
-    let finish = match finish_message {
-        Some(finish_msg) => ProgressFinish::WithMessage(String::from(finish_msg).into()),
-        None => ProgressFinish::AndLeave
-    };
-
-    // Match on the combination of `total` and `is_tty`
-    match (length, is_tty) {
-        (Some(len), true) => {
-            let pb = ProgressBar::new(len as u64);
-            pb.set_draw_target(ProgressDrawTarget::stdout_with_hz(3));
-            pb.set_style(
-                ProgressStyle::with_template(
-                    "{msg:20} [{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({eta})",
-                )
-                .unwrap()
-            );
-            pb.set_message(msg);
-            ProgressReporter::Bar(pb.with_finish(finish))
+        Progress { 
+            bar: pb.with_finish(finish),
+            to_tty,
+            finish_message: finish_msg 
         }
-        (None, true) => {
-            let ps = ProgressBar::new_spinner();
-            ps.set_draw_target(ProgressDrawTarget::stdout_with_hz(3));
-            ps.set_style(
-                ProgressStyle::with_template(
-                    "{msg:20} [{elapsed_precise}] {spinner} {pos:>7}",
-                )
-                .unwrap()
-                .tick_chars("🌖🌗🌘🌑🌒🌓🌔🌕"),
-            );
-            ps.set_message(msg);
+    }
 
-            ProgressReporter::Spinner(ps.with_finish(finish))
-        }
-        (length, false) => {
-            let pp = ProgressPrinter::new(
-                length,
+    pub fn inc(&mut self, delta: u64) {
+        self.bar.inc(delta);
+    }
+
+    /// For manual finishing of Progress (e.g. when used in a while loop)
+    pub fn finish(&self) {
+        if !self.to_tty {
+            let msg = self.finish_message.as_deref().unwrap_or("Progress 100% complete");
+            
+            println!(
+                "{}, {} iterations completed in {} seconds",
                 msg,
-                finish_message.map(|s| String::from(s)),
-                interval,
-                verbose
+                self.bar.position(),
+                self.bar.elapsed().as_secs()
             );
-            ProgressReporter::Printer(pp)
+            io::stdout().flush().unwrap(); // Force flush
+        } else if let Some(msg) = &self.finish_message {
+            self.bar.finish_with_message(msg.clone());
+        } else {
+            self.bar.finish();
         }
     }
 }
+
+/// Now we need to allow `Progress` to be "attached" to iterators
+pub struct ProgressIter<I>
+where
+    I: Iterator,
+{
+    iter: I,
+    progress: Progress,
+}
+
+impl<I> ProgressIter<I>
+where
+    I: Iterator,
+{
+    fn new(iter: I, progress: Progress) -> Self {
+        ProgressIter { iter, progress }
+    }
+}
+
+impl<I> Iterator for ProgressIter<I>
+where
+    I: Iterator,
+{
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+
+        let item = self.iter.next();
+
+        if let Some(_) = item {
+
+            self.progress.bar.inc(1);
+        
+        // if we are printing to a tty then finishing will be automatically
+        // handled. Otherwise, we finish manually:
+        } else if !self.progress.to_tty {
+            self.progress.finish();
+        }
+        
+        item
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+pub trait ProgressIteratorExt: Iterator + Sized {
+    fn attach_progress(self, progress: Progress) -> ProgressIter<Self> {
+        ProgressIter::new(self, progress)
+    }
+}
+
+impl<I> ProgressIteratorExt for I where I: Iterator {}

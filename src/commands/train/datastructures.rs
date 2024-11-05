@@ -1,11 +1,12 @@
 // Structures for maintaining pair counts during training
 
 use super::comms::all_reduce_changes;
-use crate::utils::progress::get_progress_reporter;
+use crate::utils::progress::{Progress, ProgressIteratorExt};
 
 use std::collections::{HashMap,HashSet,BinaryHeap};
 use std::cmp::Ordering;
 
+use indicatif::ProgressIterator;
 use mpi::topology::{SimpleCommunicator,Communicator};
 
 #[derive(Debug, Eq)]
@@ -51,17 +52,15 @@ impl<'a> PairCounter<'a> {
 
         let mut counts_map: HashMap<(u32,u32),(i32,HashSet<usize>)> = HashMap::new();
         
-        let mut progress = get_progress_reporter(
+        let progress = Progress::new(
             Some(blocks.len()),
             world.rank(),
             "🧮 counting pairs", 
-            None,
-            1000000, 
-            true
+            Some("🧮 pairs counted"),
         );
 
         // Process each block to extract pairs and add them to the heap
-        for (block_idx,block) in blocks.into_iter().enumerate() {
+        for (block_idx,block) in blocks.into_iter().enumerate().attach_progress(progress) {
 
             // Extract adjacent pairs
             if block.tokens.len() >= 2 {
@@ -80,7 +79,6 @@ impl<'a> PairCounter<'a> {
                         });
                 }
             }
-            progress.inc(1);
         }
         
         // Convert to Vec
@@ -89,7 +87,6 @@ impl<'a> PairCounter<'a> {
         .map(|(pair, (count, block_ids))| (pair, (count, block_ids.into_iter().collect())))
         .collect();
     
-        progress.finish_with_message("🧮 pairs counted");
 
         // Commit pending changes
         pc.commit(counts_vec);

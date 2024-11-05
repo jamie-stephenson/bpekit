@@ -4,12 +4,10 @@ mod iter;
 
 use datastructures::{PairCounter,Block};
 use iter::PyBufferedIterator;
-use crate::utils::get_progress_reporter;
-use crate::utils::progress::ProgressReporter;
+use crate::utils::progress::{Progress,ProgressIteratorExt};
 
 use std::collections::HashMap;
 
-use indicatif::{ProgressIterator,ProgressBar};
 use dashmap::DashMap;
 use itertools::Either;
 use rayon::prelude::*;
@@ -36,19 +34,12 @@ pub fn train(
     }
 
     // Count the duplicate blocks in the generator
-    let block_count_progress = get_progress_reporter(
+    let block_count_progress = Progress::new(
         None,      // length
         rank,
         "🧱 counting blocks",
-        Some("🧱 blocks counted"),
-        10000000,  // interval
-        true       // verbose 
+        Some("🧱 blocks counted")
     );
-
-    let spinner = match block_count_progress {
-        ProgressReporter::Spinner(ps) => ps,
-        _ => ProgressBar::new_spinner() 
-    }; 
 
     // Covert Python generator into special iterator that handles Python GIL.
     // This allows us to access the generator from multiple threads without
@@ -73,7 +64,7 @@ pub fn train(
     py.allow_threads(||{
         buffered_iter
             .into_iter()
-            .progress_with(spinner)
+            .attach_progress(block_count_progress)
             .par_bridge()
             .for_each(|s| {
                 // TODO: Error handling instead of unwrapping 
@@ -82,24 +73,20 @@ pub fn train(
     });
 
     // Convert block_counts to blocks
-    let mut block_tokenize_progress = get_progress_reporter(
+    let block_tokenize_progress = Progress::new(
         Some(block_counts.len()), // length
         rank,
         "🔢 tokenizing blocks",
-        None,
-        10000000,  // interval
-        true       // verbose 
+        Some("🔢 blocks tokenized")
     );
     
     let blocks: Vec<Block> = block_counts
         .into_iter()
+        .attach_progress(block_tokenize_progress)
         .map(|(s, count)| {
-            block_tokenize_progress.inc(1);
             Block::new(s, count as i32)
         })
         .collect();
-
-    block_tokenize_progress.finish_with_message("🔢 blocks tokenized");
 
     // Init pair counter
     let mut bp_counts = PairCounter::new(&blocks,&world);    
@@ -108,22 +95,20 @@ pub fn train(
     let mut current_vocab_size: u32 = 256;
     let mut merges: HashMap<(u32, u32), u32> = HashMap::new(); 
     
-    let mut progress = get_progress_reporter(
+    let mut progress = Progress::new(
         Some((vocab_size-current_vocab_size) as usize), //length
         rank,
         "🤝 merging pairs",
-        None,
-        1000, // interval
-        true  // verbose
+        Some("🤝 pairs merged"),
     );
-
+    
     while current_vocab_size < vocab_size {
-
+        
         let pair = match bp_counts.pop() { 
             Some(item) => item,
             None => break // Exit the loop if no pairs are left
         };
-
+        
         if bp_counts.is_stale(&pair) {
             bp_counts.update_count_and_push(pair);
             continue;
@@ -146,27 +131,27 @@ pub fn train(
                 |mut changes1, changes2| {
                     for (pair, (change2, block_ids)) in changes2 {
                         changes1
-                            .entry(pair)
-                            .and_modify(|(change1,ids)| {
-                                *change1 += change2;
-                                ids.append(&mut block_ids.clone());
-                            })                             
-                            .or_insert((change2,block_ids));
-                    }
-                    changes1
-                },
+                        .entry(pair)
+                        .and_modify(|(change1,ids)| {
+                            *change1 += change2;
+                            ids.append(&mut block_ids.clone());
+                        })                             
+                        .or_insert((change2,block_ids));
+                }
+                changes1
+            },
             ).into_iter().collect();
 
             // Commit changes and sync across ranks
             bp_counts.commit(changes);
             
             current_vocab_size += 1;
-
+            
             progress.inc(1);
             //println!("New bytepair merge {:?} -> {:?} with count {:?}.", pair.vals, current_vocab_size, pair.count);
-    }
+        }
 
-    progress.finish_with_message("🤝 pairs merged");
-    
-    Ok(merges)
-}
+        progress.finish();
+        
+        Ok(merges)
+    }
