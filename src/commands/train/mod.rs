@@ -3,13 +3,10 @@ mod comms;
 mod iter;
 
 use datastructures::{PairCounter,Block};
-use iter::PyBufferedIterator;
 use crate::utils::progress::{Progress,ProgressIteratorExt};
 
 use std::collections::HashMap;
 
-use dashmap::DashMap;
-use itertools::Either;
 use rayon::prelude::*;
 use mpi::initialize;
 use mpi::topology::Communicator;
@@ -18,7 +15,6 @@ use pyo3::types::{PyIterator, PyString};
 
 #[pyfunction]
 pub fn train(
-    py: Python,
     generator: &Bound<'_, PyIterator>, 
     vocab_size: u32, 
 ) -> PyResult<HashMap<(u32, u32), u32>> {
@@ -41,36 +37,20 @@ pub fn train(
         Some("🧱 blocks counted")
     );
 
-    // Covert Python generator into special iterator that handles Python GIL.
-    // This allows us to access the generator from multiple threads without
-    // upsetting the GIL. 
-    let buffered_iter = match PyBufferedIterator::new(
-        generator,
-        |element| {
-            match element.downcast::<PyString>() {
-                Ok(s) => Either::Right(std::iter::once(s.to_str().map(|s| s.to_string()))),
-                Err(_) => Either::Left(std::iter::once(Ok("_".to_string())))
-            }
-        },
-        8132,
-    )
-    {
-        Ok(iter) => iter,
-        Err(e) => panic!["Failed to convert python generator to rust `PyBufferedIterator`: {:?}",e]
-    };
-
-    let block_counts: DashMap<String, i32> = DashMap::new();
+    let mut block_counts: HashMap<String, i32> = HashMap::new();
     
-    py.allow_threads(||{
-        buffered_iter
-            .into_iter()
-            .attach_progress(block_count_progress)
-            .par_bridge()
-            .for_each(|s| {
-                // TODO: Error handling instead of unwrapping 
-                block_counts.entry(s.unwrap()).and_modify(|count| { *count += 1 }).or_insert(1);
-            });
-    });
+    generator
+        .into_iter()
+        .attach_progress(block_count_progress)
+        .for_each(|s| {
+            block_counts.entry(
+                s.unwrap()
+                .downcast::<PyString>().unwrap()
+                .to_str().unwrap()
+                .to_string()
+            ).and_modify(|c|*c+=1)
+            .or_insert(1);
+        });
 
     // Convert block_counts to blocks
     let block_tokenize_progress = Progress::new(
