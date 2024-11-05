@@ -1,12 +1,11 @@
 // Structures for maintaining pair counts during training
 
-use super::comms::all_reduce_changes;
+use super::comms::reduce_changes;
 use crate::utils::progress::{Progress, ProgressIteratorExt};
 
 use std::collections::{HashMap,HashSet,BinaryHeap};
 use std::cmp::Ordering;
 
-use indicatif::ProgressIterator;
 use mpi::topology::{SimpleCommunicator,Communicator};
 
 #[derive(Debug, Eq)]
@@ -35,22 +34,19 @@ impl PartialOrd for Pair {
 }
 
 // struct to maintain counts across all processes
-pub(crate) struct PairCounter<'a> {
+pub(crate) struct PairCounter {
     heap: BinaryHeap<Pair>,                                 // Heap of pairs, maintained based on global counts
     counts: HashMap<(u32, u32), i32>,                       // Map from pair to global count, used to validate the top of the heap
-    world: &'a SimpleCommunicator                           // For collective comms
 }
 
-impl<'a> PairCounter<'a> {
+impl PairCounter {
 
-    pub fn new(blocks: &[Block], world: &'a SimpleCommunicator) -> Self {
+    pub fn new(blocks: &[Block], world: &SimpleCommunicator) -> Self {
         let mut pc = PairCounter {
             heap: BinaryHeap::new(),
-            counts: HashMap::new(),
-            world: world
+            counts: HashMap::new()
         };
 
-        let mut counts_map: HashMap<(u32,u32),(i32,HashSet<usize>)> = HashMap::new();
         
         let progress = Progress::new(
             Some(blocks.len()),
@@ -58,6 +54,8 @@ impl<'a> PairCounter<'a> {
             "🧮 counting pairs", 
             Some("🧮 pairs counted"),
         );
+
+        let mut counts_map: HashMap<(u32,u32),(i32,HashSet<usize>)> = HashMap::new();
 
         // Process each block to extract pairs and add them to the heap
         for (block_idx,block) in blocks.into_iter().enumerate().attach_progress(progress) {
@@ -81,15 +79,17 @@ impl<'a> PairCounter<'a> {
             }
         }
         
-        // Convert to Vec
-        let counts_vec: Vec<((u32, u32), (i32, Vec<usize>))> = counts_map
-        .into_iter()
-        .map(|(pair, (count, block_ids))| (pair, (count, block_ids.into_iter().collect())))
-        .collect();
-    
-
-        // Commit pending changes
-        pc.commit(counts_vec);
+        // Convert to HashSet to Vec
+        let counts_vec: HashMap<(u32, u32), (i32, Vec<usize>)> = counts_map
+            .into_iter()
+            .map(|(pair, (count, block_ids))| {
+                (pair,(count, block_ids.into_iter().collect()))
+            }).collect();
+        
+        // Reduce global changes to rank 0 and then commit
+        if let Some(global_counts) = reduce_changes(world, counts_vec) { 
+            pc.commit(global_counts);
+        };
         pc
     }
 
@@ -108,28 +108,15 @@ impl<'a> PairCounter<'a> {
     }    
 
     // Commit pending changes
-    pub fn commit(&mut self, changes: Vec<((u32,u32),(i32,Vec<usize>))>) {
-
-        let (local_changes, local_new_block_ids): (Vec<((u32,u32),i32)>, HashMap<(u32,u32),Vec<usize>>) = changes
-            .into_iter()
-            .map(|(pair, (change, block_ids))| ((pair, change), (pair, block_ids)))
-            .unzip();
-
-        let global_changes = all_reduce_changes(&self.world, local_changes); 
+    pub fn commit(&mut self, changes: HashMap<(u32,u32),(i32,Vec<usize>)>) {
 
         // Process changes
-        for (pair, change) in global_changes {
+        for (pair, (change, block_ids)) in changes {
             
             // You only ever have a positive change when you are introducing a new pair.
             // Add new pairs to the heap. 
             if change > 0 { 
                 self.counts.insert(pair, change);
-
-                let block_ids = local_new_block_ids
-                    .get(&pair)
-                    .cloned()
-                    .unwrap_or_else(Vec::new);
-
                 self.heap.push(Pair{count: change, vals: pair, block_ids});
             
             // Old pairs aren't removed from heap, 

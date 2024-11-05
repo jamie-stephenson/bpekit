@@ -12,9 +12,7 @@ crate-type = ["rlib", "cdylib"]
 pyo3 = { version = "0.21", features = ["extension-module", "abi3-py310"] }
 mpi = "0.8"
 rayon = "1.10.0"
-fancy-regex = "0.14"
-counter = "0.6"
 indicatif = "0.17.8"
 atty = "0.2.14"
-itertools = "0.12"
-dashmap = "6.1.0"
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"

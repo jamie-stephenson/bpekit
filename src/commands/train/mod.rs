@@ -1,8 +1,8 @@
 mod datastructures;
 mod comms;
-mod iter;
 
 use datastructures::{PairCounter,Block};
+use comms::reduce_block_counts;
 use crate::utils::progress::{Progress,ProgressIteratorExt};
 
 use std::collections::HashMap;
@@ -37,13 +37,13 @@ pub fn train(
         Some("🧱 blocks counted")
     );
 
-    let mut block_counts: HashMap<String, i32> = HashMap::new();
+    let mut local_block_counts: HashMap<String, i32> = HashMap::new();
     
     generator
         .into_iter()
         .attach_progress(block_count_progress)
         .for_each(|s| {
-            block_counts.entry(
+            local_block_counts.entry(
                 s.unwrap()
                 .downcast::<PyString>().unwrap()
                 .to_str().unwrap()
@@ -51,6 +51,11 @@ pub fn train(
             ).and_modify(|c|*c+=1)
             .or_insert(1);
         });
+
+    let block_counts = match reduce_block_counts(&world, local_block_counts) {
+        Some(map) => map, // rank 0
+        None => HashMap::new() // other ranks
+    };
 
     // Convert block_counts to blocks
     let block_tokenize_progress = Progress::new(
@@ -98,7 +103,7 @@ pub fn train(
 
         merges.insert(pair.vals, current_vocab_size);
         
-        let changes: Vec<((u32, u32), (i32, Vec<usize>))> = pair.block_ids
+        let changes: HashMap<(u32, u32), (i32, Vec<usize>)> = pair.block_ids
             .par_iter()
             .map(|&block_idx| {
                 let block = &blocks[block_idx] as *const _ as *mut Block;
@@ -119,8 +124,7 @@ pub fn train(
                         .or_insert((change2,block_ids));
                 }
                 changes1
-            },
-            ).into_iter().collect();
+            });
 
             // Commit changes and sync across ranks
             bp_counts.commit(changes);
