@@ -75,7 +75,16 @@ fn init_datastructures(
 
     match rank {
         0 => Some((blocks, bp_counts)),
-        _ => None
+        _ => {
+            // Kill non root processes, freeing up
+            // rescources for fast merging on root.
+            // Don't actually need to kill the process: even if it is 
+            // alive and idle the root can still use all resources.
+            // However, this is the cleanest way I have found so far
+            // (avoids handling ranks outside of this function)
+            unsafe {mpi::ffi::MPI_Finalize()};
+            std::process::exit(0);
+        }
     }
 } 
 
@@ -138,18 +147,48 @@ pub fn train(
                     changes1
                 });
 
-                // Commit changes and sync across ranks
-                bp_counts.commit(changes);
-                
-                current_vocab_size += 1;
-                
-                progress.inc(1);
-                //println!("New bytepair merge {:?} -> {:?} with count {:?}.", pair.vals, current_vocab_size, pair.count);
+            // Commit changes and sync across ranks
+            bp_counts.commit(changes);
+            
+            current_vocab_size += 1;
+            
+            progress.inc(1);
+            //println!("New bytepair merge {:?} -> {:?} with count {:?}.", pair.vals, current_vocab_size, pair.count);
+        }
+
+        progress.finish();
+        Ok(merges)
+    } else {
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        // Set the duration for which you want the CPU load to run
+        let load_duration = Duration::from_secs(9);
+        let start_time = Instant::now();
+
+        let mut handles = Vec::new();
+        
+        let handle = thread::spawn(move || {
+
+            let mut x = 0u64;
+            while Instant::now() - start_time < load_duration {
+                x = x.wrapping_add(1);
+                x = x.wrapping_mul(2);
+                x = x.wrapping_sub(3);
             }
 
-            progress.finish();
-            Ok(merges)
-        } else {
-            Ok(HashMap::new())
+            println!("Thread finished after consuming CPU with x = {}", x);
+        });
+
+        handles.push(handle);
+        
+
+        // Wait for all threads to finish
+        for handle in handles {
+            let _ = handle.join();
         }
+
+        println!("All threads have completed execution after {} seconds.", load_duration.as_secs());
+        Ok(HashMap::new())
     }
+}
