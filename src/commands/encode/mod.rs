@@ -1,14 +1,56 @@
 mod datastructures;
+mod save;
 
 use datastructures::{Merge,Token};
+use save::save_tokens;
+use crate::utils::progress::{Progress,ProgressIteratorExt};
 
 use std::collections::{BinaryHeap,HashMap};
+use std::path::Path;
 
+use rayon::prelude::*;
+use pyo3::prelude::*;
 use pyo3::pyfunction;
-
+use pyo3::types::{PyIterator, PyString};
+use pyo3::exceptions::PyException;
 
 #[pyfunction]
-pub fn encode(utf8_codepoints: Vec<u8>, merges: HashMap<(u32,u32),u32>) -> Vec<u32> {
+pub fn encode(
+    generator: &Bound<'_,PyIterator>, 
+    merges: HashMap<(u32,u32),u32>,
+    path: &str,
+    shard_size: usize,
+    rank: usize
+) -> PyResult<()> {
+
+    let progress = Progress::new(
+        None,      // length
+        0,
+        "🕵️‍♀️ encoding text",
+        Some("🕵️‍♀️ text encoded")
+    );
+
+    // TODO Convert PyIterator into Parallel Iterator
+    let tokens_iter = generator
+        .into_iter()
+        .attach_progress(progress)
+        .map(|s| {
+           perform_merges(
+                s.unwrap()
+                    .downcast::<PyString>().unwrap()
+                    .to_str().unwrap()
+                    .as_bytes()
+                    .to_vec(),
+                &merges
+            ) 
+        });
+
+    save_tokens(tokens_iter, Path::new(path), shard_size, rank)
+        .map_err(|e| PyException::new_err(e.to_string()))
+}
+
+
+pub fn perform_merges(utf8_codepoints: Vec<u8>, merges: &HashMap<(u32,u32),u32>) -> Vec<u32> {
 
     let length = utf8_codepoints.len(); 
     let mut queue = BinaryHeap::with_capacity(length);

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bincode;
+use bincode::{serialize,deserialize};
 use mpi::traits::*;
 use mpi::topology::{Communicator,SimpleCommunicator};
 use mpi::datatype::PartitionMut;
@@ -12,7 +12,7 @@ pub(crate) fn reduce_block_counts(
     local_map: HashMap<String, i32>,
 ) -> Option<HashMap<String, i32>> {
 
-    let serialized_bytes = match bincode::serialize(&local_map) {
+    let serialized_bytes = match serialize(&local_map) {
         Ok(bytes) => bytes,
         Err(e) => {
             eprintln!("Serialization error: {}", e);
@@ -26,7 +26,7 @@ pub(crate) fn reduce_block_counts(
 
         for bytes in gathered_bytes {
 
-            let received_map: HashMap<String, i32> = match bincode::deserialize(&bytes) {
+            let received_map: HashMap<String, i32> = match deserialize(&bytes) {
                 Ok(map) => map,
                 Err(e) => {
                     eprintln!("Deserialization error: {}", e);
