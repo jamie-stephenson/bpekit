@@ -5,7 +5,9 @@ use crate::utils::progress::{Progress, ProgressIteratorExt};
 
 use std::collections::{HashMap,HashSet,BinaryHeap};
 use std::cmp::Ordering;
+use std::time::Instant;
 
+use rayon::prelude::*;
 use mpi::topology::{SimpleCommunicator,Communicator};
 
 #[derive(Debug, Eq)]
@@ -55,29 +57,43 @@ impl PairCounter {
             Some("🧮 pairs counted"),
         );
 
-        let mut counts_map: HashMap<(u32,u32),(i32,HashSet<usize>)> = HashMap::new();
+        let start = Instant::now();
 
-        // Process each block to extract pairs and add them to the heap
-        for (block_idx,block) in blocks.into_iter().enumerate().attach_progress(progress) {
-
-            // Extract adjacent pairs
-            if block.tokens.len() >= 2 {
-                for pair in block.tokens.windows(2) {
-                    let a = pair[0] as u32;
-                    let b = pair[1] as u32;
-                    counts_map.entry((a, b))
-                        .and_modify(|(count, set)| {
-                            *count += block.count; 
-                            set.insert(block_idx);
-                        })
-                        .or_insert_with(|| {
-                            let mut set = HashSet::new();
-                            set.insert(block_idx);
-                            (block.count, set)
-                        });
+        let counts_map = blocks.into_iter()
+            .enumerate()
+            .attach_progress(progress)
+            .par_bridge()
+            .fold_with(HashMap::new(), |mut counts_map, (block_idx, block)| {
+                if block.tokens.len() >= 2 {
+                    for pair in block.tokens.windows(2) {
+                        let a = pair[0] as u32;
+                        let b = pair[1] as u32;
+                        counts_map.entry((a, b))
+                            .and_modify(|(count, set): &mut (i32, HashSet<usize>)| {
+                                *count += block.count;
+                                set.insert(block_idx);
+                            })
+                            .or_insert_with(|| {
+                                let mut set = HashSet::new();
+                                set.insert(block_idx);
+                                (block.count, set)
+                            });
+                    }
                 }
-            }
-        }
+                counts_map
+            })
+            .reduce(|| HashMap::new(), |mut map1, map2| {
+                // Merge map2 into map1
+                for (key, (count2, set2)) in map2 {
+                    map1.entry(key)
+                        .and_modify(|(count1, set1)| {
+                            *count1 += count2;
+                            set1.extend(&set2);
+                        })
+                        .or_insert((count2, set2));
+                }
+                map1
+            });
         
         // Convert to HashSet to Vec
         let counts_vec: HashMap<(u32, u32), (i32, Vec<usize>)> = counts_map
@@ -90,6 +106,9 @@ impl PairCounter {
         if let Some(global_counts) = reduce_changes(world, counts_vec) { 
             pc.commit(global_counts);
         };
+
+        println!("{}",start.elapsed().as_secs());
+
         pc
     }
 
