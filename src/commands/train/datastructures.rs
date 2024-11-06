@@ -1,11 +1,9 @@
 // Structures for maintaining pair counts during training
 
-use super::comms::reduce_changes;
 use crate::utils::progress::{Progress, ProgressIteratorExt};
 
 use std::collections::{HashMap,HashSet,BinaryHeap};
 use std::cmp::Ordering;
-use std::time::Instant;
 
 use rayon::prelude::*;
 use mpi::topology::{SimpleCommunicator,Communicator};
@@ -57,8 +55,6 @@ impl PairCounter {
             Some("🧮 pairs counted"),
         );
 
-        let start = Instant::now();
-
         let counts_map = blocks.into_iter()
             .enumerate()
             .attach_progress(progress)
@@ -96,18 +92,13 @@ impl PairCounter {
             });
         
         // Convert to HashSet to Vec
-        let counts_vec: HashMap<(u32, u32), (i32, Vec<usize>)> = counts_map
+        let counts: HashMap<(u32, u32), (i32, Vec<usize>)> = counts_map
             .into_iter()
             .map(|(pair, (count, block_ids))| {
                 (pair,(count, block_ids.into_iter().collect()))
             }).collect();
         
-        // Reduce global changes to rank 0 and then commit
-        if let Some(global_counts) = reduce_changes(world, counts_vec) { 
-            pc.commit(global_counts);
-        };
-
-        println!("{}",start.elapsed().as_secs());
+        pc.commit(counts);
 
         pc
     }

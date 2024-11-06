@@ -6,48 +6,6 @@ use mpi::topology::{Communicator,SimpleCommunicator};
 use mpi::datatype::PartitionMut;
 use mpi::Count;
 
-pub(crate) fn reduce_changes(
-    world: &SimpleCommunicator,
-    local_changes: HashMap<(u32, u32), (i32, Vec<usize>)>
-) -> Option<HashMap<(u32, u32), (i32, Vec<usize>)>> {
-
-    let serialized_bytes = match bincode::serialize(&local_changes) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            eprintln!("Serialization error {}", e);
-            return None;
-        }
-    };
-
-    if let Some(gathered_bytes) = gather_bytes(world, serialized_bytes) {
-
-        let mut aggregated_map: HashMap<(u32, u32), (i32, Vec<usize>)> = HashMap::new();
-
-        for bytes in gathered_bytes {
-            let received_data: HashMap<(u32, u32), (i32, Vec<usize>)> = match bincode::deserialize(&bytes) {
-                Ok(data) => data,
-                Err(e) => {
-                    eprintln!("Deserialization error {}", e);
-                    continue;
-                }
-            };
-
-            for (pair, (count, block_ids)) in received_data {
-                aggregated_map
-                    .entry(pair)
-                    .and_modify(|(c,b)|{
-                        *c += count;
-                        (*b).extend(&block_ids);
-                    })
-                    .or_insert((count,block_ids));
-            }
-        }
-
-        Some(aggregated_map)
-    } else {
-        None
-    }
-}
 
 pub(crate) fn reduce_block_counts(
     world: &SimpleCommunicator,
