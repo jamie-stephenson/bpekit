@@ -48,21 +48,31 @@ fn init_datastructures(
             ).and_modify(|c|*c+=1)
             .or_insert(1);
         });
+        
+    let local_blocks: Vec<Block> = local_block_counts
+        .iter()
+        .map(|(s, count)| {
+            Block::new(s.clone(), *count as i32)
+        })
+        .collect();
 
-    let block_counts = match reduce_block_counts(&world, local_block_counts) {
+    // Init pair counter
+    let bp_counts = PairCounter::new(&local_blocks,&world); 
+    
+    let global_block_counts = match reduce_block_counts(&world, local_block_counts) {
         Some(map) => map, // rank 0
         None => HashMap::new() // other ranks
     };
 
     // Convert block_counts to blocks
     let block_tokenize_progress = Progress::new(
-        Some(block_counts.len()), // length
-        rank,
-        "🔢 tokenizing blocks",
-        Some("🔢 blocks tokenized")
-    );
+            Some(global_block_counts.len()), // length
+            rank,
+            "🔢 tokenizing blocks",
+            Some("🔢 blocks tokenized")
+        );
 
-    let blocks: Vec<Block> = block_counts
+    let global_blocks: Vec<Block> = global_block_counts
         .into_iter()
         .attach_progress(block_tokenize_progress)
         .map(|(s, count)| {
@@ -70,11 +80,8 @@ fn init_datastructures(
         })
         .collect();
 
-    // Init pair counter
-    let bp_counts = PairCounter::new(&blocks,&world); 
-
     match rank {
-        0 => Some((blocks, bp_counts)),
+        0 => Some((global_blocks, bp_counts)),
         _ => {
             // Kill non root processes, freeing up
             // rescources for fast merging on root.
