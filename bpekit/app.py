@@ -63,9 +63,6 @@ def train(
             shard_size=shard_size,
             ndocs=ndocs
         )
-        typer.echo(f"Tokenizer trained and saved to {merges_path}")
-        if tokens_path:
-            typer.echo(f"Encoded tokenizer corpus shards saved to {tokens_path}")
     except AssertionError as e:
         typer.secho(f"Error: {e}", fg=typer.colors.RED)
     except Exception as e:
