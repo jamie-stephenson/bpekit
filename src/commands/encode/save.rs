@@ -23,7 +23,7 @@ where
     let mut progress = Progress::new(
         Some(shard_size),
         rank,
-        &format!("Shard {}", shard_index),
+        &format!("🧩 Shard {}", shard_index),
         None
     );
 
@@ -52,7 +52,7 @@ where
             progress = Progress::new(
                     Some(shard_size),
                     rank,
-                    &format!("Shard {}", shard_index),
+                    &format!("🧩 Shard {}", shard_index),
                     None
             );
         }

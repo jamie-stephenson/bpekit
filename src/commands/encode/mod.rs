@@ -1,6 +1,5 @@
 mod datastructures;
 mod save;
-mod iter;
 
 use datastructures::{Merge,Token};
 use save::save_tokens;

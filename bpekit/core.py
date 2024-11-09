@@ -3,13 +3,11 @@ from bpekit.utils import save_tokens
 
 from datasets import Dataset
 
-import multiprocessing as mp
 from pathlib import Path
 import os
 import re
 import pickle
 from typing import Tuple, List
-from time import time
 
 class Tokenizer:
     """
@@ -76,9 +74,6 @@ class Tokenizer:
         to numpy shards.
         """
 
-        if self.rank==0:
-            t0 = time()
-
         def batches(dataset, batch_size):
             total_size = len(dataset)
             for i in range(0, total_size, batch_size):
@@ -93,7 +88,7 @@ class Tokenizer:
         )
 
         if self.rank==0:
-            print(f"Encoding and saving took {time()-t0:.2f} seconds.")
+            print("🕵️‍♀️💾 Shards encoded and saved to disk.")
 
     def save_encoded_tokenizer_corpus(
         self,
