@@ -1,5 +1,4 @@
 from bpekit.rust import train, encode, encode_dataset
-from bpekit.utils import save_tokens
 
 from datasets import Dataset
 
@@ -62,7 +61,7 @@ class Tokenizer:
     def encode(self, text: str) -> List[int]:
         return encode(text, self.merges)
 
-    def save_encoded_corpus(
+    def save_encoded_dataset(
         self,
         dataset: Dataset,
         path: Path,
@@ -90,17 +89,6 @@ class Tokenizer:
         if self.rank==0:
             print("🕵️‍♀️💾 Shards encoded and saved to disk.")
 
-    def save_encoded_tokenizer_corpus(
-        self,
-        path: Path,
-        shard_size: int
-    ):
-        """
-        Save encoded tokenizer corpus as shards.
-        Must be called after `from_dataset`.
-        """
-        save_tokens(self.blocks,path,shard_size,self.rank)
-    
     #------------------END-OF-ENCODING-METHODS--------------------
 
     #----------------------DECODING-METHODS-----------------------

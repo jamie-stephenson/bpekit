@@ -1,10 +1,15 @@
 // Structures for maintaining pair counts during training
 
 use crate::utils::progress::{Progress, ProgressIteratorExt};
+use super::comms::reduce_block_counts;
 
 use std::collections::{HashMap,HashSet,BinaryHeap};
 use std::cmp::Ordering;
 
+use pyo3::{
+    types::{PyIterator,PyString,PyAnyMethods,PyStringMethods},
+    Bound,
+};
 use rayon::prelude::*;
 use mpi::topology::{SimpleCommunicator,Communicator};
 
@@ -205,5 +210,77 @@ impl Block {
             token_idx += 1;
         }
         changes
+    }
+}
+
+/// Initialize datastructures
+pub fn init(
+    generator: &Bound<'_, PyIterator>,
+) -> (Vec<Block>,PairCounter) {
+    // Init comms
+    let universe = mpi::initialize().unwrap();
+    let world = universe.world();
+
+    let rank = world.rank();
+
+    if rank == 0 {
+        println!("Running BPE training algorithm...");
+    }
+
+    // Count the duplicate blocks in the generator
+    let block_count_progress = Progress::new(
+        None,      // length
+        rank,
+        "🧱 counting blocks",
+        Some("🧱 blocks counted")
+    );
+
+    let mut local_block_counts: HashMap<String, i32> = HashMap::new();
+
+    generator
+        .into_iter()
+        .attach_progress(block_count_progress)
+        .for_each(|s| {
+            local_block_counts.entry(
+                s.unwrap()
+                    .downcast::<PyString>().unwrap()
+                    .to_str().unwrap()
+                    .to_string()
+            ).and_modify(|c|*c+=1)
+            .or_insert(1);
+        });
+    
+
+    if let Some(global_block_counts) = reduce_block_counts(&world, local_block_counts) {
+
+        // Convert block_counts to blocks
+        let block_tokenize_progress = Progress::new(
+                Some(global_block_counts.len()), // length
+                rank,
+                "🔢 tokenizing blocks",
+                Some("🔢 blocks tokenized")
+            );
+
+        let global_blocks: Vec<Block> = global_block_counts
+            .into_iter()
+            .attach_progress(block_tokenize_progress)
+            .map(|(s, count)| {
+                Block::new(s, count as i32)
+            })
+            .collect();
+        // Init pair counter
+        let bp_counts = PairCounter::new(&global_blocks,&world); 
+
+        (global_blocks, bp_counts)
+        
+    } else {
+        // Kill non root processes, freeing up
+        // rescources for fast merging on root.
+        // Don't actually need to kill the process: even if it is 
+        // alive and idle the root can still use all resources.
+        // However, this is the cleanest way I have found so far
+        // (avoids handling ranks outside of this function)
+        unsafe {mpi::ffi::MPI_Finalize()};
+        std::process::exit(0)
     }
 }

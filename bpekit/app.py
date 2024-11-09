@@ -98,7 +98,7 @@ def encode(
     ),
 
     batch_size: int = typer.Option(
-        1024,
+        16,
         "--batch-size",
         "--batch_size",
         "-b",

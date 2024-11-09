@@ -1,89 +1,13 @@
 mod datastructures;
 mod comms;
 
-use datastructures::{PairCounter,Block};
-use comms::reduce_block_counts;
-use crate::utils::progress::{Progress,ProgressIteratorExt};
+use crate::utils::progress::Progress;
 
 use std::collections::HashMap;
 
 use rayon::prelude::*;
-use mpi::initialize;
-use mpi::topology::Communicator;
 use pyo3::prelude::*;
-use pyo3::types::{PyIterator, PyString};
-
-fn init_datastructures(
-    generator: &Bound<'_, PyIterator>,
-) -> (Vec<Block>,PairCounter) {
-    // Init comms
-    let universe = initialize().unwrap();
-    let world = universe.world();
-
-    let rank = world.rank();
-
-    if rank == 0 {
-        println!("Running BPE training algorithm...");
-    }
-
-    // Count the duplicate blocks in the generator
-    let block_count_progress = Progress::new(
-        None,      // length
-        rank,
-        "🧱 counting blocks",
-        Some("🧱 blocks counted")
-    );
-
-    let mut local_block_counts: HashMap<String, i32> = HashMap::new();
-
-    generator
-        .into_iter()
-        .attach_progress(block_count_progress)
-        .for_each(|s| {
-            local_block_counts.entry(
-                s.unwrap()
-                    .downcast::<PyString>().unwrap()
-                    .to_str().unwrap()
-                    .to_string()
-            ).and_modify(|c|*c+=1)
-            .or_insert(1);
-        });
-    
-
-    if let Some(global_block_counts) = reduce_block_counts(&world, local_block_counts) {
-
-        // Convert block_counts to blocks
-        let block_tokenize_progress = Progress::new(
-                Some(global_block_counts.len()), // length
-                rank,
-                "🔢 tokenizing blocks",
-                Some("🔢 blocks tokenized")
-            );
-
-        let global_blocks: Vec<Block> = global_block_counts
-            .into_iter()
-            .attach_progress(block_tokenize_progress)
-            .map(|(s, count)| {
-                Block::new(s, count as i32)
-            })
-            .collect();
-        // Init pair counter
-        let bp_counts = PairCounter::new(&global_blocks,&world); 
-
-        (global_blocks, bp_counts)
-        
-    } else {
-        // Kill non root processes, freeing up
-        // rescources for fast merging on root.
-        // Don't actually need to kill the process: even if it is 
-        // alive and idle the root can still use all resources.
-        // However, this is the cleanest way I have found so far
-        // (avoids handling ranks outside of this function)
-        unsafe {mpi::ffi::MPI_Finalize()};
-        std::process::exit(0)
-    }
-} 
-
+use pyo3::types::PyIterator;
 
 #[pyfunction]
 pub fn train(
@@ -91,8 +15,8 @@ pub fn train(
     vocab_size: u32, 
 ) -> PyResult<Vec<((u32, u32), u32)>> {
 
-    let (blocks, mut bp_counts) = init_datastructures(generator);
-
+    let (blocks, mut bp_counts) = datastructures::init(generator);
+    
     let mut current_vocab_size: u32 = 256;
     let mut merges: Vec<((u32, u32), u32)> = Vec::with_capacity((vocab_size-current_vocab_size) as usize); 
     
@@ -122,7 +46,7 @@ pub fn train(
         let changes: HashMap<(u32, u32), (i32, Vec<usize>)> = pair.block_ids
             .par_iter()
             .map(|&block_idx| {
-                let block = &blocks[block_idx] as *const _ as *mut Block;
+                let block = &blocks[block_idx] as *const _ as *mut datastructures::Block;
                 unsafe {
                     (*block).merge(left, right, current_vocab_size, block_idx)
                 }

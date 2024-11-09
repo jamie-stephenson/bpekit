@@ -15,7 +15,14 @@ use pyo3::exceptions::PyException;
 
 /// Encode a string to tokens
 #[pyfunction]
-pub fn encode(s: String, merge_map: HashMap<(u32,u32),u32>) -> Vec<u32> {
+pub fn encode(s: String, merges: Vec<((u32,u32),u32)>) -> Vec<u32> {
+    
+    let mut merge_map: HashMap<(u32,u32), u32> = HashMap::new();
+
+    for (pair,token) in merges {
+        merge_map.insert(pair, token);
+    }
+
     encode_string(s, &merge_map)
 }
 

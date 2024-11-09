@@ -30,7 +30,7 @@ def encode_dataset(
     
     dataset = get_dataset(path,rank,world_size,ndocs)
     tokenizer = Tokenizer.from_pickled_merges(merges_path,rank)
-    tokenizer.save_encoded_corpus(dataset,tokens_path,shard_size,batch_size)
+    tokenizer.save_encoded_dataset(dataset,tokens_path,shard_size,batch_size)
 
 if __name__ == '__main__':
     """Trains and saves new tokenizer based on command line input."""
@@ -69,7 +69,7 @@ if __name__ == '__main__':
         "--batch_size",
         "--batch-size",
         type= int,
-        default=int(1e8),
+        default=16,
         help="Number of datapoints to concatenate and process per iteration."
     )
 
