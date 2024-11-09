@@ -1,4 +1,4 @@
-from bpekit.rust import train, encode
+from bpekit.rust import train, encode, encode_dataset
 from bpekit.utils import save_tokens
 
 from datasets import Dataset
@@ -62,25 +62,35 @@ class Tokenizer:
     #----------------------ENCODING-METHODS------------------------
 
     def encode(self, text: str) -> List[int]:
-        return encode(text.encode('utf-8'), self.merges)
+        return encode(text, self.merges)
 
     def save_encoded_corpus(
         self,
         dataset: Dataset,
         path: Path,
-        shard_size: int
+        shard_size: int,
+        batch_size: int
     ):
         """
         Encode and save a corpus (that differs from the tokenizer corpus) 
-        to shards.
+        to numpy shards.
         """
 
         if self.rank==0:
             t0 = time()
 
-        with mp.Pool(os.cpu_count()) as pool:
-            tokens_iter = pool.imap(self.encode, dataset['text'], chunksize=16)
-            save_tokens(tokens_iter,path,shard_size,self.rank) 
+        def batches(dataset, batch_size):
+            total_size = len(dataset)
+            for i in range(0, total_size, batch_size):
+                yield ''.join(dataset[i:i + batch_size])
+
+        encode_dataset(
+            batches(dataset['text'],batch_size),
+            self.merges,
+            str(path),
+            shard_size,
+            self.rank
+        )
 
         if self.rank==0:
             print(f"Encoding and saving took {time()-t0:.2f} seconds.")

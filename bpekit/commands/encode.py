@@ -11,6 +11,7 @@ def encode_dataset(
         merges_path: Path,
         tokens_path: Path | None = None, 
         shard_size: int = int(1e8),
+        batch_size: int = 1024,
         ndocs: int | None = None
     ):
 
@@ -29,7 +30,7 @@ def encode_dataset(
     
     dataset = get_dataset(path,rank,world_size,ndocs)
     tokenizer = Tokenizer.from_pickled_merges(merges_path,rank)
-    tokenizer.save_encoded_corpus(dataset,tokens_path,shard_size)
+    tokenizer.save_encoded_corpus(dataset,tokens_path,shard_size,batch_size)
 
 if __name__ == '__main__':
     """Trains and saves new tokenizer based on command line input."""
@@ -58,9 +59,18 @@ if __name__ == '__main__':
 
     parser.add_argument(
         "--shard_size",
+        "--shard-size",
         type= int,
         default=int(1e8),
         help="Number of tokens per shard."
+    )
+
+    parser.add_argument(
+        "--batch_size",
+        "--batch-size",
+        type= int,
+        default=int(1e8),
+        help="Number of datapoints to concatenate and process per iteration."
     )
 
     parser.add_argument(

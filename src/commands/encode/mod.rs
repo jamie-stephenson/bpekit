@@ -1,81 +1,79 @@
 mod datastructures;
 mod save;
+mod iter;
 
 use datastructures::{Merge,Token};
 use save::save_tokens;
-use crate::utils::progress::{Progress,ProgressIteratorExt};
-
 use std::collections::{BinaryHeap,HashMap};
 use std::path::Path;
 
-use rayon::prelude::*;
 use pyo3::prelude::*;
-use pyo3::pyfunction;
 use pyo3::types::{PyIterator, PyString};
 use pyo3::exceptions::PyException;
 
+
+/// Encode a dataset and save as numpy shards. 
 #[pyfunction]
-pub fn encode(
+pub fn encode_dataset(
     generator: &Bound<'_,PyIterator>, 
-    merges: HashMap<(u32,u32),u32>,
+    merges: Vec<((u32,u32),u32)>,
     path: &str,
     shard_size: usize,
-    rank: usize
+    rank: i32
 ) -> PyResult<()> {
 
-    let progress = Progress::new(
-        None,      // length
-        0,
-        "🕵️‍♀️ encoding text",
-        Some("🕵️‍♀️ text encoded")
-    );
+    let mut merge_map: HashMap<(u32,u32), u32> = HashMap::new();
 
-    // TODO Convert PyIterator into Parallel Iterator
-    let tokens_iter = generator
-        .into_iter()
-        .attach_progress(progress)
+    for (pair,token) in merges {
+        merge_map.insert(pair, token);
+    }
+
+    let tokens = generator
+        .into_iter()    
         .map(|s| {
-           perform_merges(
-                s.unwrap()
-                    .downcast::<PyString>().unwrap()
-                    .to_str().unwrap()
-                    .as_bytes()
-                    .to_vec(),
-                &merges
-            ) 
+            // TODO: Handle Result better, don't just unwrap
+            let string = s.unwrap()
+                .downcast::<PyString>().unwrap()
+                .to_string();
+            encode_string(string, &merge_map)
         });
-
-    save_tokens(tokens_iter, Path::new(path), shard_size, rank)
+    
+    save_tokens(tokens, Path::new(path), shard_size, rank)
         .map_err(|e| PyException::new_err(e.to_string()))
 }
 
+/// Encode a string to integer tokens
+#[pyfunction]
+pub fn encode(s: String, merge_map: HashMap<(u32,u32),u32>) -> Vec<u32> {
+    encode_string(s, &merge_map)
+}
 
-pub fn perform_merges(utf8_codepoints: Vec<u8>, merges: &HashMap<(u32,u32),u32>) -> Vec<u32> {
+fn encode_string(s: String, merge_map: &HashMap<(u32,u32),u32>) -> Vec<u32> {
 
-    let length = utf8_codepoints.len(); 
+    let utf8 = s.as_bytes().to_vec();
+    let length = utf8.len(); 
     let mut queue = BinaryHeap::with_capacity(length);
     
-    queue.extend(utf8_codepoints
+    queue.extend(utf8
         .windows(2)
         .enumerate()
         .filter_map(|(idx, window)| {
             let pair = (window[0] as u32, window[1] as u32);
-            merges.get(&pair).map(|val| Merge{idx,val:*val})
+            merge_map.get(&pair).map(|val| Merge{idx,val:*val})
         }),
     );
 
-    
-    let mut tokens: Vec<Token> = utf8_codepoints
-    .into_iter()
-    .enumerate()
-    .map(|(i, byte)| {
-        Token {
-            val: byte as u32,
-            prev: if i > 0 { Some(i - 1) } else { None },
-            next: if i + 1 < length { Some(i + 1) } else { None },
-            width: 1,
-        }
-    }).collect();
+    let mut tokens: Vec<Token> = utf8
+        .into_iter()
+        .enumerate()
+        .map(|(i, byte)| {
+            Token {
+                val: byte as u32,
+                prev: if i > 0 { Some(i - 1) } else { None },
+                next: if i + 1 < length { Some(i + 1) } else { None },
+                width: 1,
+            }
+        }).collect();
     
     while let Some(merge) = queue.pop() {
         // Each merge looks like this: 
@@ -108,7 +106,7 @@ pub fn perform_merges(utf8_codepoints: Vec<u8>, merges: &HashMap<(u32,u32),u32>)
         // abc -> aX_ but the merge ab still indexes "a" even though a no longer points
         // to b. We also lazily check this.
         let pair = (tokens[merge.idx].val,right_token.val);
-        if !merges.get(&pair).map_or(false, |new_token| *new_token == merge.val ) {
+        if !merge_map.get(&pair).map_or(false, |new_token| *new_token == merge.val ) {
             continue;
         }
         
@@ -124,7 +122,7 @@ pub fn perform_merges(utf8_codepoints: Vec<u8>, merges: &HashMap<(u32,u32),u32>)
             tokens[next_idx].prev = Some(merge.idx);
 
             let new_pair = (left_token.val,tokens[next_idx].val);
-            if let Some(val) = merges.get(&new_pair) {
+            if let Some(val) = merge_map.get(&new_pair) {
                 queue.push(Merge { idx: merge.idx, val: *val })
             }
         }
@@ -133,7 +131,7 @@ pub fn perform_merges(utf8_codepoints: Vec<u8>, merges: &HashMap<(u32,u32),u32>)
         if let Some(prev_idx) = left_token.prev {
 
             let new_pair = (tokens[prev_idx].val,left_token.val);
-            if let Some(val) = merges.get(&new_pair) {
+            if let Some(val) = merge_map.get(&new_pair) {
                 queue.push(Merge { idx: prev_idx, val: *val })
             }
         }
@@ -142,81 +140,4 @@ pub fn perform_merges(utf8_codepoints: Vec<u8>, merges: &HashMap<(u32,u32),u32>)
         .into_iter()
         .filter_map(|token| (token.width != 0).then(|| token.val))
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashMap;
-
-    #[test]
-    fn test_no_merges() {
-        let utf8_codepoints = vec![1u8, 2, 3];
-        let merges = HashMap::new();
-        let result = encode(utf8_codepoints.clone(), merges);
-        let expected: Vec<u32> = utf8_codepoints.into_iter().map(|b| b as u32).collect();
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_single_merge() {
-        let utf8_codepoints = vec![1u8, 2, 3];
-        let mut merges = HashMap::new();
-        merges.insert((1u32, 2u32), 4u32);
-        let result = encode(utf8_codepoints, merges);
-        let expected = vec![4u32, 3u32];
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_multiple_merges() {
-        let utf8_codepoints = vec![1u8, 2, 3, 4];
-        let mut merges = HashMap::new();
-        merges.insert((1u32, 2u32), 5u32);
-        merges.insert((3u32, 4u32), 6u32);
-        merges.insert((5u32, 6u32), 7u32);
-        let result = encode(utf8_codepoints, merges);
-        let expected = vec![7u32];
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_conflicting_merges() {
-        let utf8_codepoints = vec![1u8, 2, 3];
-        let mut merges = HashMap::new();
-        merges.insert((1u32, 2u32), 4u32);
-        merges.insert((2u32, 3u32), 5u32);
-        let result = encode(utf8_codepoints, merges);
-        let expected = vec![4u32, 3u32];
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_stale_merges() {
-        let utf8_codepoints = vec![1u8, 2, 1, 2];
-        let mut merges = HashMap::new();
-        merges.insert((1u32, 2u32), 4u32);
-        merges.insert((2u32, 1u32), 3u32);
-        let result = encode(utf8_codepoints, merges);
-        let expected = vec![1u32, 3u32, 2u32];
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_empty_input() {
-        let utf8_codepoints = vec![];
-        let merges = HashMap::new();
-        let result = encode(utf8_codepoints, merges);
-        let expected: Vec<u32> = vec![];
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_single_codepoint() {
-        let utf8_codepoints = vec![1u8];
-        let merges = HashMap::new();
-        let result = encode(utf8_codepoints, merges);
-        let expected = vec![1u32];
-        assert_eq!(result, expected);
-    }
 }

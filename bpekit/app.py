@@ -97,6 +97,14 @@ def encode(
         help="Number of tokens per shard."
     ),
 
+    batch_size: int = typer.Option(
+        1024,
+        "--batch-size",
+        "--batch_size",
+        "-b",
+        help="Number of datapoints to concatenate an process per iteration."
+    ),
+
     ndocs: int | None = typer.Option(
         None,
         "--ndocs",
@@ -113,6 +121,7 @@ def encode(
             merges_path=merges_path,
             tokens_path=tokens_path,
             shard_size=shard_size,
+            batch_size=batch_size,
             ndocs=ndocs
         )
         typer.echo(f"Dataset encoded and saved to {tokens_path or 'default location'}")
