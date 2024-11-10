@@ -78,6 +78,7 @@ where
 
     // Finish progress bar
     progress.finish();
+    println!("🕵️‍♀️💾 Shards encoded and saved to disk.");
 
     Ok(())
 }

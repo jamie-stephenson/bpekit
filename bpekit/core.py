@@ -86,9 +86,6 @@ class Tokenizer:
             self.rank
         )
 
-        if self.rank==0:
-            print("🕵️‍♀️💾 Shards encoded and saved to disk.")
-
     #------------------END-OF-ENCODING-METHODS--------------------
 
     #----------------------DECODING-METHODS-----------------------

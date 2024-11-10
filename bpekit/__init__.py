@@ -1,6 +1,9 @@
-from .commands import train_tokenizer, encode_dataset
+from .commands import *
+from .core import Tokenizer
 
 __all__ = [
-    "train_tokenizer",
+    "download_dataset"
     "encode_dataset",
+    "train_tokenizer",
+    "Tokenizer"
 ]

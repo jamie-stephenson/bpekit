@@ -1,4 +1,3 @@
-"""Trains and saves new tokenizer"""
 from bpekit.core import Tokenizer
 from bpekit.utils import get_dataset
 
@@ -18,7 +17,8 @@ def train_tokenizer(
     Trains a tokenizer and saves the merges and optionally the encoded tokenizer corpus.
 
     Args:
-        path (Path): Path to the dataset.
+        path (Path): Path to the dataset. This can either be the path to a .txt file or the path to the
+            directory containing a Hugging Face dataset.
         vocab_size (int): Vocabulary size.
         merges_path (Path): Path to save merges to.
         tokens_path (Optional[Path]): Path to save encoded tokenizer corpus shards to.
