@@ -6,10 +6,6 @@ use super::comms::reduce_block_counts;
 use std::collections::{HashMap,HashSet,BinaryHeap};
 use std::cmp::Ordering;
 
-use pyo3::{
-    types::{PyIterator,PyString,PyAnyMethods,PyStringMethods},
-    Bound,
-};
 use rayon::prelude::*;
 use mpi::topology::{SimpleCommunicator,Communicator};
 
@@ -215,8 +211,9 @@ impl Block {
 
 /// Initialize datastructures
 pub fn init(
-    generator: &Bound<'_, PyIterator>,
+    local_blocks: impl Iterator<Item = String>
 ) -> (Vec<Block>,PairCounter) {
+
     // Init comms
     let universe = mpi::initialize().unwrap();
     let world = universe.world();
@@ -237,17 +234,13 @@ pub fn init(
 
     let mut local_block_counts: HashMap<String, i32> = HashMap::new();
 
-    generator
-        .into_iter()
+    local_blocks
         .attach_progress(block_count_progress)
         .for_each(|s| {
-            local_block_counts.entry(
-                s.unwrap()
-                    .downcast::<PyString>().unwrap()
-                    .to_str().unwrap()
-                    .to_string()
-            ).and_modify(|c|*c+=1)
-            .or_insert(1);
+            local_block_counts
+                .entry(s)
+                .and_modify(|c|*c+=1)
+                .or_insert(1);
         });
     
 
@@ -268,6 +261,7 @@ pub fn init(
                 Block::new(s, count as i32)
             })
             .collect();
+        
         // Init pair counter
         let bp_counts = PairCounter::new(&global_blocks,&world); 
 

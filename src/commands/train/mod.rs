@@ -7,15 +7,27 @@ use std::collections::HashMap;
 
 use rayon::prelude::*;
 use pyo3::prelude::*;
-use pyo3::types::PyIterator;
+use pyo3::types::{PyIterator,PyString};
 
 #[pyfunction]
 pub fn train(
     generator: &Bound<'_, PyIterator>, 
     vocab_size: u32, 
 ) -> PyResult<Vec<((u32, u32), u32)>> {
+    
+    // Convert PyIterator into iterator that yields `String`s
+    let local_blocks = generator
+        .into_iter()    
+        .map(|s| {
+            // TODO: Handle Result better, don't just unwrap
+            s
+            .unwrap()
+            .downcast::<PyString>()
+            .unwrap()
+            .to_string()
+        });
 
-    let (blocks, mut bp_counts) = datastructures::init(generator);
+    let (blocks, mut bp_counts) = datastructures::init(local_blocks);
     
     let mut current_vocab_size: u32 = 256;
     let mut merges: Vec<((u32, u32), u32)> = Vec::with_capacity((vocab_size-current_vocab_size) as usize); 

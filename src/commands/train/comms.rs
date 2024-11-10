@@ -46,6 +46,7 @@ pub(crate) fn reduce_block_counts(
 }
 
 
+// ---------Multi-processing---------
 fn gather_bytes(
     world: &mpi::topology::SimpleCommunicator,
     bytes: Vec<u8>,
