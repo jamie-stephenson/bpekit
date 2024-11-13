@@ -5,18 +5,19 @@ import os
 
 def download_dataset(
         hf_path: str,
-        save_path: str,
+        path: str,
         cache_dir: str | None = None,
         name: str | None = None,
         split: str | None = 'train',
-        n_proc: int | None = os.cpu_count()
+        n_proc: int | None = os.cpu_count(),
+        **kwargs
     ):
     """
     Download a Hugging Face dataset, save it to disk, and remove the cached files.
 
     Args:
         hf_path (str): Path to the dataset on the Hugging Face Hub.
-        save_path (str): Path to save the downloaded dataset.
+        path (str): Path to save the downloaded dataset.
         cache_dir (str): Directory for Hugging Face to use for caching the dataset.
             Defaults to ~/.cache/huggingface
         name (Optional[str]): Optional name of a specific part of the dataset. Defaults to None.
@@ -32,7 +33,7 @@ def download_dataset(
         num_proc=n_proc
     )
     
-    dataset.save_to_disk(save_path)
+    dataset.save_to_disk(path)
     dataset.cleanup_cache_files()
 
 
@@ -53,8 +54,7 @@ if __name__ == '__main__':
     )
         
     parser.add_argument(
-        "--save_path",
-        "--save-path",
+        "--path",
         type=str,
         help="path to save dataset to"
     )

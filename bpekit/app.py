@@ -139,7 +139,7 @@ def download(
         ..., 
         help="Path to the dataset on the Hugging Face Hub.",
     ),
-    save_path: str = typer.Argument(
+    path: str = typer.Argument(
         ..., 
         help="Path to save the downloaded dataset to.",
     ),
@@ -177,13 +177,13 @@ def download(
     try:
         download_dataset(
             hf_path=hf_path,
-            save_path=save_path,
+            path=path,
             cache_dir=cache_dir,
             name=name,
             split=split,
             n_proc=n_proc
         )
-        typer.echo(f"📦 Dataset downloaded and saved to {save_path}")
+        typer.echo(f"📂 Dataset downloaded and saved to {path}")
     except Exception as e:
         typer.secho(f"An unexpected error occurred: {e}", fg=typer.colors.RED)
     

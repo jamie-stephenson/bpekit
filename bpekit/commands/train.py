@@ -9,24 +9,31 @@ def train_tokenizer(
         path: Path, 
         vocab_size: int, 
         merges_path: Path = Path('tokenizers/'),
-        tokens_path: Path | None = None, 
-        shard_size: int = int(1e8),
-        ndocs: int | None = None
+        ndocs: int | None = None,
+        **kwargs
     ) -> Tokenizer:
     """
-    Trains a tokenizer and saves the merges and optionally the encoded tokenizer corpus.
+    Trains a tokenizer and saves the merges.
 
     Args:
         path (Path): Path to the dataset. This can either be the path to a .txt file or the path to the
             directory containing a Hugging Face dataset.
         vocab_size (int): Vocabulary size.
         merges_path (Path): Path to save merges to.
-        tokens_path (Optional[Path]): Path to save encoded tokenizer corpus shards to.
-        shard_size (int): Number of tokens per shard.
         ndocs (Optional[int]): Number of dataset entries to train with.
 
     Returns:
-        Tokenizer: The trained tokenizer.
+        tokenizer (Tokenizer): The trained tokenizer.
+
+    **MULTIPROCESSING WARNING**:
+
+    If you run this function in parallel across multiple processes, the following will occur:
+    - The first part of the training process will take advantage of multiprocessing
+    - The second part uses multithreading on a single process and will kill
+      any non-root processes to forcefully free up resources for the root.
+
+    Bare this in mind when attempting to use this function in series with other
+    functions that rely on a multiprocessing environment. 
     """
 
     rank = int(os.getenv('OMPI_COMM_WORLD_RANK',0))
@@ -43,9 +50,6 @@ def train_tokenizer(
 
     tokenizer = Tokenizer.from_dataset(dataset,vocab_size,rank,world_size)
     tokenizer.save_merges(merges_path)
-
-    if tokens_path:
-        tokenizer.save_encoded_tokenizer_corpus(tokens_path,shard_size)
 
     return tokenizer
 
@@ -73,25 +77,10 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        "--tokens_path",
-        "--tokens-path",
-        type= Path,
-        default=None,
-        help="Path to save encoded tokenizer corpus shards to."
-    )
-    
-    parser.add_argument(
-        "--shard_size",
-        type= int,
-        default=int(1e8),
-        help="Number of tokens per shard (only used when saving encoded tokenizer corpus)."
-    )
-    
-    parser.add_argument(
         "--ndocs",
         type= int,
         default=None,
-        help="Number of dataset entries to encode."
+        help="Number of dataset entries to train with."
     )
 
     args = parser.parse_args()

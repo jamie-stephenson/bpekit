@@ -11,7 +11,8 @@ def encode_dataset(
         tokens_path: Path | None = None, 
         shard_size: int = int(1e8),
         batch_size: int = 16,
-        ndocs: int | None = None
+        ndocs: int | None = None,
+        **kwargs
     ):
 
     """
@@ -57,6 +58,14 @@ def encode_dataset(
         FileExistsError:
             If the `tokens_path` directory already exists, preventing accidental 
             overwriting of previously encoded data.
+
+    **MULTIPROCESSING**:
+    
+    This function can take advantage of an OpenMPI multi-process environment.
+    When ran in parallel across multiple processes each with their own
+    rank assigned by OpenMPI, this function will automatically splt the dataset
+    across processes and encode in parallel. Where possible, each individual process uses
+    multithreading to paralleize encoding its part of the dataset. 
 
     Environment Variables:
         OMPI_COMM_WORLD_RANK (int, optional):
