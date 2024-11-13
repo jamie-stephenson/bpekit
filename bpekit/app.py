@@ -22,7 +22,7 @@ def train(
     ),
 
     merges_path: Path = typer.Option(
-        Path('tokenizers/'),
+        Path('tokenizers/tokenizer.pkl'),
         "--merges-path",
         "--merges_path",
         "-m",

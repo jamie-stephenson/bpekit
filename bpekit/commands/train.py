@@ -8,7 +8,7 @@ import os
 def train_tokenizer(
         path: Path, 
         vocab_size: int, 
-        merges_path: Path = Path('tokenizers/'),
+        merges_path: Path = Path('tokenizers/tokenizer.pkl'),
         ndocs: int | None = None,
         **kwargs
     ) -> Tokenizer:
@@ -39,8 +39,6 @@ def train_tokenizer(
     rank = int(os.getenv('OMPI_COMM_WORLD_RANK',0))
     world_size = int(os.getenv('OMPI_COMM_WORLD_SIZE',1))
     
-    merges_path = merges_path / Path(f"{vocab_size}.pkl")
-
     assert not os.path.exists(merges_path),(
         "A tokenizer already exists at {}. Have you trained this tokenizer already?"
         .format(merges_path)
