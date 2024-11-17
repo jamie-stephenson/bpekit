@@ -36,8 +36,12 @@ impl PartialOrd for Pair {
 
 // struct to maintain counts across all processes
 pub(crate) struct PairCounter {
-    heap: BinaryHeap<Pair>,                                 // Heap of pairs, maintained based on global counts
-    counts: HashMap<(u32, u32), i32>,                       // Map from pair to global count, used to validate the top of the heap
+    
+    // Heap of pairs, maintained based on global counts
+    heap: BinaryHeap<Pair>,                                 
+
+    // Map from pair to global count, used to validate the top of the heap
+    counts: HashMap<(u32, u32), i32>,                       
 }
 
 impl PairCounter {
