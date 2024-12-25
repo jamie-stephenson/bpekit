@@ -64,7 +64,8 @@ impl Progress {
             }
             (None, true) => {
                 let spinner = ProgressBar::new_spinner();
-                spinner.set_draw_target(ProgressDrawTarget::stdout_with_hz(3));
+                spinner.set_draw_target(ProgressDrawTarget::stdout_with_hz(5));
+                spinner.enable_steady_tick(std::time::Duration::from_millis(200));
                 spinner.set_style(
                     ProgressStyle::with_template(
                         "{msg:20} [{elapsed_precise}] {spinner} {pos:>7}",
