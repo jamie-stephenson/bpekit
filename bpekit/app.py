@@ -29,22 +29,6 @@ def train(
         help="Path to save merges to."
     ),
 
-    tokens_path: Path | None = typer.Option(
-        None,
-        "--tokens-path",
-        "--tokens_path",
-        "-t",
-        help="Path to save encoded tokenizer corpus shards to."
-    ),
-
-    shard_size: int = typer.Option(
-        int(1e8),
-        "--shard-size",
-        "--shard_size",
-        "-s",
-        help="Number of tokens per shard."
-    ),
-
     ndocs: int | None = typer.Option(
         None,
         "--ndocs",
@@ -60,8 +44,6 @@ def train(
             path=path,
             vocab_size=vocab_size,
             merges_path=merges_path,
-            tokens_path=tokens_path,
-            shard_size=shard_size,
             ndocs=ndocs
         )
     except AssertionError as e:
