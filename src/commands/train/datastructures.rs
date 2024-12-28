@@ -273,7 +273,7 @@ pub fn init(
         
     } else {
         // Kill non root processes, freeing up
-        // rescources for fast merging on root.
+        // resources for fast merging on root.
         // Don't actually need to kill the process: even if it is 
         // alive and idle the root can still use all resources.
         // However, this is the cleanest way I have found so far
