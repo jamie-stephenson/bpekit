@@ -1,6 +1,6 @@
 __pycache__
 /target
-/bpe
+/.venv
 /tokenizers
 /tokens
 /data
