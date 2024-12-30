@@ -15,7 +15,7 @@ def get_dataset(
             # Load the text file into a DatasetDict (each line of the .txt will be an entry)
             dataset = load_dataset('text', data_files=str(path))
         elif path.is_dir():
-            dataset = load_from_disk(path)
+            dataset = load_from_disk(str(path))
         else:
             raise ValueError(f"Unsupported file type: {path}")
     else:

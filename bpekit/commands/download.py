@@ -2,11 +2,12 @@ from datasets import load_dataset
 
 import argparse
 import os
+from pathlib import Path
 
 def download_dataset(
         hf_path: str,
-        path: str,
-        cache_dir: str | None = None,
+        path: Path,
+        cache_dir: Path | None = None,
         name: str | None = None,
         split: str | None = 'train',
         n_proc: int | None = os.cpu_count(),
@@ -33,7 +34,7 @@ def download_dataset(
         num_proc=n_proc
     )
     
-    dataset.save_to_disk(path)
+    dataset.save_to_disk(str(path))
     dataset.cleanup_cache_files()
 
 
