@@ -65,7 +65,7 @@ def encode_dataset(
     When ran in parallel across multiple processes each with their own
     rank assigned by OpenMPI, this function will automatically splt the dataset
     across processes and encode in parallel. Where possible, each individual process uses
-    multithreading to paralleize encoding its part of the dataset. 
+    multithreading to parallelize encoding its part of the dataset. 
 
     Environment Variables:
         OMPI_COMM_WORLD_RANK (int, optional):

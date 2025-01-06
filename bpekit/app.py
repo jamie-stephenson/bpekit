@@ -18,7 +18,7 @@ def train(
 
     vocab_size: int = typer.Argument(
         ..., 
-        help="Vocabulary size."
+        help="Vocabulary size (must be > 256)."
     ),
 
     merges_path: Path = typer.Option(
