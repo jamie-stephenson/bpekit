@@ -1,6 +1,7 @@
 import typer
 
 from bpekit.commands import *
+from bpekit.utils import get_rank_and_world_size
 
 from pathlib import Path
 import os
@@ -39,12 +40,15 @@ def train(
     """
     Train and save a new tokenizer.
     """
+    rank, world_size = get_rank_and_world_size()
     try:
         train_tokenizer(
             path=path,
             vocab_size=vocab_size,
             merges_path=merges_path,
-            ndocs=ndocs
+            ndocs=ndocs,
+            rank=rank,
+            world_size=world_size
         )
     except AssertionError as e:
         typer.secho(f"Assertion Error: {e}", fg=typer.colors.RED)
@@ -98,6 +102,8 @@ def encode(
     """
     Encode dataset using a pretrained tokenizer.
     """
+
+    rank, world_size = get_rank_and_world_size()
     try:
         encode_dataset(
             path=path,
@@ -105,7 +111,9 @@ def encode(
             tokens_path=tokens_path,
             shard_size=shard_size,
             batch_size=batch_size,
-            ndocs=ndocs
+            ndocs=ndocs,
+            rank=rank,
+            world_size=world_size
         )
         typer.echo(f"Dataset encoded and saved to {tokens_path or 'default location'}")
     except AssertionError as e:

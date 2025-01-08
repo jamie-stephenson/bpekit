@@ -12,6 +12,8 @@ def encode_dataset(
         shard_size: int = int(1e8),
         batch_size: int = 16,
         ndocs: int | None = None,
+        rank: int = 0,
+        world_size: int = 1,
         **kwargs
     ):
 
@@ -67,14 +69,6 @@ def encode_dataset(
     across processes and encode in parallel. Where possible, each individual process uses
     multithreading to parallelize encoding its part of the dataset. 
 
-    Environment Variables:
-        OMPI_COMM_WORLD_RANK (int, optional):
-            The rank of the current process in a distributed setup. Defaults to `0` if 
-            not set. This is used in multi-process or distributed environments.
-        OMPI_COMM_WORLD_SIZE (int, optional):
-            The total number of processes in a distributed setup. Defaults to `1` if not set. 
-            This determines how the dataset is partitioned and processed across multiple 
-            processes.
 
     Notes:
         - Ensure that the tokenizer's merges file exists at the specified `merges_path` before 
@@ -95,9 +89,6 @@ def encode_dataset(
         )
         ```
     """
-
-    rank = int(os.getenv('OMPI_COMM_WORLD_RANK',0))
-    world_size = int(os.getenv('OMPI_COMM_WORLD_SIZE',1))
 
     assert os.path.exists(merges_path),(
         "No tokenizer found at {}. Please train this tokenizer first before attempting to use it."

@@ -10,6 +10,8 @@ def train_tokenizer(
         vocab_size: int, 
         merges_path: Path = Path('tokenizers/tokenizer.pkl'),
         ndocs: int | None = None,
+        rank: int = 0,
+        world_size: int = 1,
         **kwargs
     ) -> Tokenizer:
     """
@@ -36,9 +38,6 @@ def train_tokenizer(
     functions that rely on a multiprocessing environment. 
     """
 
-    rank = int(os.getenv('OMPI_COMM_WORLD_RANK',0))
-    world_size = int(os.getenv('OMPI_COMM_WORLD_SIZE',1))
-    
     assert not os.path.exists(merges_path),(
         "A tokenizer already exists at {}. Have you trained this tokenizer already?"
         .format(merges_path)
