@@ -5,15 +5,16 @@ import argparse
 from pathlib import Path
 import os
 
+
 def train_tokenizer(
-        path: Path, 
-        vocab_size: int, 
-        merges_path: Path = Path('tokenizers/tokenizer.pkl'),
-        ndocs: int | None = None,
-        rank: int = 0,
-        world_size: int = 1,
-        **kwargs
-    ) -> Tokenizer:
+    path: Path,
+    vocab_size: int,
+    merges_path: Path = Path("tokenizers/tokenizer.pkl"),
+    ndocs: int | None = None,
+    rank: int = 0,
+    world_size: int = 1,
+    **kwargs,
+) -> Tokenizer:
     """
     Trains a tokenizer and saves the merges.
 
@@ -35,23 +36,24 @@ def train_tokenizer(
       any non-root processes to forcefully free up resources for the root.
 
     Bare this in mind when attempting to use this function in series with other
-    functions that rely on a multiprocessing environment. 
+    functions that rely on a multiprocessing environment.
     """
 
-    assert not os.path.exists(merges_path),(
-        "A tokenizer already exists at {}. Have you trained this tokenizer already?"
-        .format(merges_path)
+    assert not os.path.exists(merges_path), (
+        "A tokenizer already exists at {}. Have you trained this tokenizer already?".format(
+            merges_path
+        )
     )
-    
-    dataset = get_dataset(path,rank,world_size,ndocs)
 
-    tokenizer = Tokenizer.from_dataset(dataset,vocab_size,rank,world_size)
+    dataset = get_dataset(path, rank, world_size, ndocs)
+
+    tokenizer = Tokenizer.from_dataset(dataset, vocab_size, rank, world_size)
     tokenizer.save_merges(merges_path)
 
     return tokenizer
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(

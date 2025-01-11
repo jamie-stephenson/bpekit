@@ -4,15 +4,16 @@ import argparse
 import os
 from pathlib import Path
 
+
 def download_dataset(
-        hf_path: str,
-        path: Path,
-        cache_dir: Path | None = None,
-        name: str | None = None,
-        split: str | None = 'train',
-        n_proc: int | None = os.cpu_count(),
-        **kwargs
-    ):
+    hf_path: str,
+    path: Path,
+    cache_dir: Path | None = None,
+    name: str | None = None,
+    split: str | None = "train",
+    n_proc: int | None = os.cpu_count(),
+    **kwargs,
+):
     """
     Download a Hugging Face dataset, save it to disk, and remove the cached files.
 
@@ -24,29 +25,25 @@ def download_dataset(
         name (Optional[str]): Optional name of a specific part of the dataset. Defaults to None.
         split (Optional[str]): Dataset split to download. Defaults to 'train'.
         num_proc (Optional[int]): Number of processes to use. Defaults to the number of CPU cores available.
-    """  
-    
+    """
+
     dataset = load_dataset(
-        path=hf_path,
-        name=name,
-        split=split,
-        cache_dir=cache_dir,
-        num_proc=n_proc
+        path=hf_path, name=name, split=split, cache_dir=cache_dir, num_proc=n_proc
     )
-    
+
     dataset.save_to_disk(str(path))
     dataset.cleanup_cache_files()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
         "--dataset",
         type=str,
-        help="Name of dataset (as found in the `configs/project_datasets/` directory)."
+        help="Name of dataset (as found in the `configs/project_datasets/` directory).",
     )
-        
+
     parser.add_argument(
         "--hf_path",
         "--hf-path",
@@ -64,14 +61,14 @@ if __name__ == '__main__':
         "--cache_dir",
         "--cache-dir",
         type=str,
-        help="Directory for Hugging Face to use to cache dataset."
+        help="Directory for Hugging Face to use to cache dataset.",
     )
-        
+
     parser.add_argument(
         "--name",
         type=str,
         default=None,
-        help="Optional name of specific part of the dataset." 
+        help="Optional name of specific part of the dataset.",
     )
         
     parser.add_argument(
