@@ -8,7 +8,7 @@ No Rust installation necessary.
 ```bash
 pip install https://github.com/jamie-stephenson/bpekit/releases/download/v0.1.0-test/bpekit-0.1.0-cp310-abi3-linux_x86_64.whl
 ```
-### 🛠️ Build from source 
+### 🛠️ Install from source 
 Requires Rust installation and necessary build tools (build-essential, libclang).
 ```bash
 pip install git+https://github.com/jamie-stephenson/bpekit.git
