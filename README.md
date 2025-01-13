@@ -1,6 +1,7 @@
 # BPEKit 🐍🦀 
 
-A command-line tool and Python library for training and using efficient Byte Pair Encoding (BPE) tokenizers. It is built using Rust bindings and supports parallelization across multiple devices using [OpenMPI](https://www.open-mpi.org/).
+A command-line tool and Python library for training and using efficient [Byte Pair Encoding](https://en.wikipedia.org/wiki/Byte_pair_encoding
+) (BPE) tokenizers. It is built using Rust bindings and supports parallelization across multiple devices using [OpenMPI](https://www.open-mpi.org/).
 
 ## 📦 Installation
 ### 🎡 Install from wheel 
