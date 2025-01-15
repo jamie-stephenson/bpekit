@@ -1,17 +1,15 @@
 use std::collections::HashMap;
 
-use bincode::{serialize,deserialize};
-use mpi::traits::*;
-use mpi::topology::{Communicator,SimpleCommunicator};
+use bincode::{deserialize, serialize};
 use mpi::datatype::PartitionMut;
+use mpi::topology::{Communicator, SimpleCommunicator};
+use mpi::traits::*;
 use mpi::Count;
-
 
 pub(crate) fn reduce_block_counts(
     world: &SimpleCommunicator,
     local_map: HashMap<String, i32>,
 ) -> Option<HashMap<String, i32>> {
-
     let serialized_bytes = match serialize(&local_map) {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -21,11 +19,9 @@ pub(crate) fn reduce_block_counts(
     };
 
     if let Some(gathered_bytes) = gather_bytes(world, serialized_bytes) {
-
         let mut aggregated_map = HashMap::new();
 
         for bytes in gathered_bytes {
-
             let received_map: HashMap<String, i32> = match deserialize(&bytes) {
                 Ok(map) => map,
                 Err(e) => {
@@ -39,18 +35,13 @@ pub(crate) fn reduce_block_counts(
         }
 
         Some(aggregated_map)
-
     } else {
         None
     }
 }
 
-
-// ---------Multi-processing---------
-fn gather_bytes(
-    world: &mpi::topology::SimpleCommunicator,
-    bytes: Vec<u8>,
-) -> Option<Vec<Vec<u8>>> {
+// The actual communication happens here
+fn gather_bytes(world: &mpi::topology::SimpleCommunicator, bytes: Vec<u8>) -> Option<Vec<Vec<u8>>> {
     let rank = world.rank();
     let root = world.process_at_rank(0);
 
@@ -66,7 +57,7 @@ fn gather_bytes(
 
     match rank {
         0 => root.gather_into_root(&local_size, &mut sizes),
-        _ => root.gather_into(&local_size)
+        _ => root.gather_into(&local_size),
     }
 
     if rank == 0 {
@@ -85,11 +76,7 @@ fn gather_bytes(
         let mut recv_buffer = vec![0u8; global_size as usize];
 
         // Create a PartitionMut to specify where each process's data will be placed
-        let mut partition = PartitionMut::new(
-            &mut recv_buffer[..],
-            &sizes[..],
-            &displs[..]
-        );
+        let mut partition = PartitionMut::new(&mut recv_buffer[..], &sizes[..], &displs[..]);
 
         // Gather all serialized bytes into the receive buffer
         root.gather_varcount_into_root(&bytes[..], &mut partition);

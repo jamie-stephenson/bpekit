@@ -1,2 +1,2 @@
-pub(crate) mod train;
 pub(crate) mod encode;
+pub(crate) mod train;

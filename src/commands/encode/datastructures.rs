@@ -5,8 +5,8 @@ use std::cmp::Ordering;
 // encoding process.
 #[derive(Debug, Eq)]
 pub struct Merge {
-    pub idx: usize,  // Index of pair within object currently being encoded
-    pub val: u32     // New token to merge pair into.
+    pub idx: usize, // Index of pair within object currently being encoded
+    pub val: u32,   // New token to merge pair into.
 }
 
 impl PartialEq for Merge {
@@ -37,7 +37,7 @@ pub struct Token {
     pub val: u32,
     pub prev: Option<usize>,
     pub next: Option<usize>,
-    pub width: usize // Number of utf-8 tokens merged to create this token
+    pub width: usize, // Number of utf-8 tokens merged to create this token
 }
 
 impl Token {

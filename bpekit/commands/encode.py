@@ -147,10 +147,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--ndocs",
-        type= int,
-        default=None,
-        help="Number of dataset entries to encode."
+        "--ndocs", type=int, default=None, help="Number of dataset entries to encode."
     )
 
     args = parser.parse_args()

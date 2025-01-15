@@ -18,14 +18,14 @@ def get_dataset(
 
             if txt_file:
                 dataset = load_dataset("text", data_files=str(txt_file))
-            
+
             # Otherwise we assume directory contains a HF dataset
             else:
                 dataset = load_from_disk(str(path))
 
         else:
             raise ValueError(f"Unsupported file type: {path}")
-        
+
     else:
         raise FileNotFoundError(f"Cannot find {path}")
 
@@ -63,10 +63,10 @@ def find_txt_file(directory_path: Path) -> Path | None:
     """
     if not directory_path.is_dir():
         raise FileNotFoundError(f"The directory {directory_path} does not exist.")
-    
+
     for file in directory_path.iterdir():
-        if file.suffix==".txt":
+        if file.suffix == ".txt":
             return directory_path / file.name
-    
+
     # No .txt file found
     return None

@@ -70,16 +70,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--merges_path",
         "--merges-path",
-        type= Path,
-        default='tokenizers/',
-        help="Path to save merges to."
+        type=Path,
+        default="tokenizers/",
+        help="Path to save merges to.",
     )
 
     parser.add_argument(
         "--ndocs",
-        type= int,
+        type=int,
         default=None,
-        help="Number of dataset entries to train with."
+        help="Number of dataset entries to train with.",
     )
 
     args = parser.parse_args()

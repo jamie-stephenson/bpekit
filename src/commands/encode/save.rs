@@ -4,10 +4,15 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::Result;
-use ndarray::{Array1, ArrayView1, s};
+use ndarray::{s, Array1, ArrayView1};
 use ndarray_npy::write_npy;
 
-pub(super) fn save_tokens<I>(tokens_iter: I, path: &Path, shard_size: usize, rank: i32) -> Result<()>
+pub(super) fn save_tokens<I>(
+    tokens_iter: I,
+    path: &Path,
+    shard_size: usize,
+    rank: i32,
+) -> Result<()>
 where
     I: Iterator<Item = Vec<u32>>,
 {
@@ -24,7 +29,7 @@ where
         Some(shard_size),
         rank,
         &format!("🧩 Shard {}", shard_index),
-        None
+        None,
     );
 
     for mut tokens in tokens_iter {
@@ -50,10 +55,10 @@ where
             // Reset progress bar for the new shard
             progress.finish();
             progress = Progress::new(
-                    Some(shard_size),
-                    rank,
-                    &format!("🧩 Shard {}", shard_index),
-                    None
+                Some(shard_size),
+                rank,
+                &format!("🧩 Shard {}", shard_index),
+                None,
             );
         }
 
