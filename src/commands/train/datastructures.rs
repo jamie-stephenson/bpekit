@@ -18,7 +18,7 @@ pub(crate) struct Pair {
 
 impl PartialEq for Pair {
     fn eq(&self, other: &Self) -> bool {
-        self.vals == other.vals && self.vals == other.vals
+        self.vals == other.vals
     }
 }
 
