@@ -48,7 +48,7 @@ pub fn encode_dataset(
     // Lazy parallel iterator that yields results on the fly
     let tokens = get_tokens_iter(strings, merge_map);
 
-    // Wrtite to file as and when results are yielded
+    // Write to file as and when results are yielded
     save_tokens(tokens, Path::new(path), shard_size, rank)
         .map_err(|e| PyException::new_err(e.to_string()))
 }
