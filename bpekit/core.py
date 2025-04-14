@@ -52,9 +52,7 @@ class Tokenizer:
 
         merges = train(blocks_str, vocab_size)
 
-        tokenizer = cls(merges, rank)
-
-        return tokenizer
+        return cls(merges, rank)
 
     # ----------------------ENCODING-METHODS------------------------
 
